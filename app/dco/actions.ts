@@ -6,7 +6,6 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
-// Type pour le retour des actions
 interface ActionResponse {
   error?: string;
   success?: boolean;
@@ -21,7 +20,10 @@ export async function createVoyage(
   const gare_depart = parseInt(formData.get('gare_depart') as string);
   const gare_arrivee = parseInt(formData.get('gare_arrivee') as string);
   const formation_voiture = parseInt(formData.get('formation_voiture') as string);
+  const formation_voiture2 = parseInt(formData.get('formation_voiture2') as string);
   const formation_wagon = parseInt(formData.get('formation_wagon') as string);
+  const places_max = parseInt(formData.get('places_max') as string);
+  const poids_max = parseInt(formData.get('poids_max') as string);
 
   // Validation
   if (!date_voyage || !sens || !gare_depart || !gare_arrivee) {
@@ -32,12 +34,22 @@ export async function createVoyage(
     return { error: 'La gare de départ et d\'arrivée doivent être différentes' };
   }
 
-  if (formation_voiture < 0 || formation_voiture > 6) {
-    return { error: 'Le nombre de voitures doit être entre 0 et 6' };
+  // Validation des formations
+  if (formation_voiture < 0 || formation_voiture > 2) {
+    return { error: 'Le nombre de voitures 1ère classe doit être entre 0 et 2' };
   }
 
-  if (formation_wagon < 0 || formation_wagon > 6) {
-    return { error: 'Le nombre de wagons doit être entre 0 et 6' };
+  if (formation_voiture2 < 0 || formation_voiture2 > 4) {
+    return { error: 'Le nombre de voitures 2ème classe doit être entre 0 et 4' };
+  }
+
+  if (formation_wagon < 2 || formation_wagon > 6) {
+    return { error: 'Le nombre de wagons marchandises doit être entre 2 et 6' };
+  }
+
+  // Vérifier qu'il y a au moins un élément dans la formation
+  if (formation_voiture === 0 && formation_voiture2 === 0 && formation_wagon === 0) {
+    return { error: 'La formation doit contenir au moins un élément' };
   }
 
   const cookieStore = await cookies();
@@ -83,7 +95,10 @@ export async function createVoyage(
       gare_depart,
       gare_arrivee,
       formation_voiture,
+      formation_voiture2,
       formation_wagon,
+      places_max,
+      poids_max,
       statut: 'actif',
     });
 
@@ -107,7 +122,10 @@ export async function updateVoyage(
   const gare_depart = parseInt(formData.get('gare_depart') as string);
   const gare_arrivee = parseInt(formData.get('gare_arrivee') as string);
   const formation_voiture = parseInt(formData.get('formation_voiture') as string);
+  const formation_voiture2 = parseInt(formData.get('formation_voiture2') as string);
   const formation_wagon = parseInt(formData.get('formation_wagon') as string);
+  const places_max = parseInt(formData.get('places_max') as string);
+  const poids_max = parseInt(formData.get('poids_max') as string);
 
   if (!id || !date_voyage || !sens || !gare_depart || !gare_arrivee) {
     return { error: 'Tous les champs sont requis' };
@@ -115,6 +133,18 @@ export async function updateVoyage(
 
   if (gare_depart === gare_arrivee) {
     return { error: 'La gare de départ et d\'arrivée doivent être différentes' };
+  }
+
+  if (formation_voiture < 0 || formation_voiture > 2) {
+    return { error: 'Le nombre de voitures 1ère classe doit être entre 0 et 2' };
+  }
+
+  if (formation_voiture2 < 0 || formation_voiture2 > 4) {
+    return { error: 'Le nombre de voitures 2ème classe doit être entre 0 et 4' };
+  }
+
+  if (formation_wagon < 2 || formation_wagon > 6) {
+    return { error: 'Le nombre de wagons marchandises doit être entre 2 et 6' };
   }
 
   const cookieStore = await cookies();
@@ -164,7 +194,10 @@ export async function updateVoyage(
       gare_depart,
       gare_arrivee,
       formation_voiture,
+      formation_voiture2,
       formation_wagon,
+      places_max,
+      poids_max,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id);

@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { Calendar, Edit, CheckCircle, AlertCircle, Clock, Train } from 'lucide-react';
+import { Calendar, Edit, CheckCircle, AlertCircle, Clock, Train, Users, Package } from 'lucide-react';
 import { terminerVoyage } from '../actions';
 import { useRouter } from 'next/navigation';
 
@@ -15,7 +15,10 @@ interface Voyage {
   gare_depart: number;
   gare_arrivee: number;
   formation_voiture: number;
+  formation_voiture2: number;
   formation_wagon: number;
+  places_max: number;
+  poids_max: number;
   statut: 'actif' | 'termine';
   created_at: string;
   gare_depart_detail?: { code: string; gare: string };
@@ -99,6 +102,14 @@ export default function HistoriquePage() {
     );
   };
 
+  const getFormationText = (voyage: Voyage) => {
+    const parts = [];
+    if (voyage.formation_voiture > 0) parts.push(`${voyage.formation_voiture}×1ère`);
+    if (voyage.formation_voiture2 > 0) parts.push(`${voyage.formation_voiture2}×2ème`);
+    if (voyage.formation_wagon > 0) parts.push(`${voyage.formation_wagon}×W`);
+    return parts.join(' | ') || 'Aucune formation';
+  };
+
   return (
     <div>
       <div className="mb-8">
@@ -139,6 +150,7 @@ export default function HistoriquePage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sens</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Départ → Arrivée</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Formation</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Capacité</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Statut</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
@@ -165,11 +177,22 @@ export default function HistoriquePage() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-6 py-4 text-sm text-gray-600">
                       <div className="flex items-center gap-2">
                         <Train className="h-4 w-4 text-gray-400" />
-                        <span>🚗 {voyage.formation_voiture}</span>
-                        <span>🚃 {voyage.formation_wagon}</span>
+                        <span>{getFormationText(voyage)}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-3 w-3 text-blue-500" />
+                          <span>{voyage.places_max} places</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Package className="h-3 w-3 text-orange-500" />
+                          <span>{voyage.poids_max} tonnes</span>
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
