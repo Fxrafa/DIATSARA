@@ -1,9 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { Calendar, Clock, Users, Package, Train, MapPin } from 'lucide-react';
+import { Calendar, Clock, Users, Package, Train, Ticket } from 'lucide-react';
 
 interface Voyage {
   id: string;
@@ -21,18 +20,19 @@ interface Voyage {
   gare_arrivee_detail?: { code: string; gare: string };
 }
 
+interface VoyageWithQuotas extends Voyage {
+  total_places_attribuees: number;
+  total_tonnes_attribuees: number;
+}
+
 export default function CTVPage() {
-  const [voyages, setVoyages] = useState<Voyage[]>([]);
+  const [voyages, setVoyages] = useState<VoyageWithQuotas[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
-    totalActifs: 0,
-    placesDisponibles: 0,
-    tonnesDisponibles: 0,
-  });
 
   useEffect(() => {
     const fetchVoyages = async () => {
-      const { data } = await supabase
+      // Récupérer les voyages actifs
+      const { data: voyagesData } = await supabase
         .from('voyages')
         .select(`
           *,
@@ -42,23 +42,41 @@ export default function CTVPage() {
         .eq('statut', 'actif')
         .order('date_voyage', { ascending: true });
 
-      if (data) {
-        setVoyages(data);
-        // Calculer les statistiques
-        let places = 0;
-        let tonnes = 0;
-        data.forEach(v => {
-          places += v.places_max || 0;
-          tonnes += v.poids_max || 0;
-        });
-        setStats({
-          totalActifs: data.length,
-          placesDisponibles: places,
-          tonnesDisponibles: tonnes,
-        });
+      if (!voyagesData) {
+        setLoading(false);
+        return;
       }
+
+      // Pour chaque voyage, récupérer les quotas
+      const voyagesWithQuotas = await Promise.all(
+        voyagesData.map(async (voyage) => {
+          // Récupérer les quotas tickets pour ce voyage
+          const { data: tickets } = await supabase
+            .from('quota_tickets')
+            .select('quota')
+            .eq('voyage_id', voyage.id);
+
+          // Récupérer les quotas bagages pour ce voyage
+          const { data: bagages } = await supabase
+            .from('quota_bagages')
+            .select('quota_tonnes')
+            .eq('voyage_id', voyage.id);
+
+          const totalPlaces = tickets?.reduce((sum, t) => sum + t.quota, 0) || 0;
+          const totalTonnes = bagages?.reduce((sum, b) => sum + b.quota_tonnes, 0) || 0;
+
+          return {
+            ...voyage,
+            total_places_attribuees: totalPlaces,
+            total_tonnes_attribuees: totalTonnes,
+          };
+        })
+      );
+
+      setVoyages(voyagesWithQuotas);
       setLoading(false);
     };
+
     fetchVoyages();
   }, []);
 
@@ -79,6 +97,13 @@ export default function CTVPage() {
     return parts.join(' | ') || 'Aucune formation';
   };
 
+  const getQuotaStatus = (attribue: number, max: number) => {
+    const ratio = max > 0 ? (attribue / max) * 100 : 0;
+    if (ratio >= 100) return { color: 'text-red-600', bg: 'bg-red-100' };
+    if (ratio >= 70) return { color: 'text-orange-600', bg: 'bg-orange-100' };
+    return { color: 'text-green-600', bg: 'bg-green-100' };
+  };
+
   if (loading) {
     return (
       <div className="text-center py-12">
@@ -92,41 +117,23 @@ export default function CTVPage() {
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Tableau de bord CTV</h1>
-        <p className="text-gray-600 mt-1">Gestion des voyages actifs et attribution des quotas</p>
+        <p className="text-gray-600 mt-1">Gestion des voyages actifs</p>
       </div>
 
-      {/* Statistiques */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      {/* Statistiques - Seulement le nombre de voyages actifs */}
+      <div className="grid grid-cols-1 md:grid-cols-1 gap-6 mb-8 max-w-xs">
         <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-green-500">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Voyages actifs</p>
-              <p className="text-3xl font-bold text-gray-900">{stats.totalActifs}</p>
+              <p className="text-3xl font-bold text-gray-900">{voyages.length}</p>
             </div>
             <Train className="h-10 w-10 text-green-500 opacity-50" />
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-blue-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Places maximales</p>
-              <p className="text-3xl font-bold text-blue-600">{stats.placesDisponibles}</p>
-            </div>
-            <Users className="h-10 w-10 text-blue-500 opacity-50" />
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-orange-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Capacité de fret</p>
-              <p className="text-3xl font-bold text-orange-600">{stats.tonnesDisponibles}T</p>
-            </div>
-            <Package className="h-10 w-10 text-orange-500 opacity-50" />
-          </div>
-        </div>
       </div>
 
-      {/* Liste des voyages actifs */}
+      {/* Liste des voyages actifs avec leurs quotas */}
       {voyages.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-xl shadow-sm">
           <Calendar className="h-16 w-16 text-gray-400 mx-auto mb-4" />
@@ -134,76 +141,98 @@ export default function CTVPage() {
           <p className="text-sm text-gray-400">Les voyages planifiés par le DCO apparaîtront ici</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-            <h2 className="text-lg font-semibold text-gray-900">Voyages actifs</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sens</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parcours</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Formation</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Capacité</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {voyages.map((voyage) => (
-                  <tr key={voyage.id} className="hover:bg-gray-50 transition">
-                    <td className="px-6 py-4 text-sm text-gray-900">
+        <div className="space-y-6">
+          {voyages.map((voyage) => {
+            const placesStatus = getQuotaStatus(voyage.total_places_attribuees, voyage.places_max);
+            const tonnesStatus = getQuotaStatus(voyage.total_tonnes_attribuees, voyage.poids_max);
+            
+            return (
+              <div key={voyage.id} className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
+                {/* En-tête du voyage */}
+                <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-medium text-gray-500">
                       {formatDate(voyage.date_voyage)}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
-                        {voyage.sens}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                      <Clock className="h-3 w-3" />
+                      Actif
+                    </span>
+                    <span className="text-sm font-medium text-gray-700">
+                      Sens {voyage.sens}
+                    </span>
+                  </div>
+                  <a
+                    href={`/ctv/quotas?voyage=${voyage.id}`}
+                    className="flex items-center gap-1 px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium transition"
+                  >
+                    <Ticket className="h-3 w-3" />
+                    Attribuer quotas
+                  </a>
+                </div>
+
+                {/* Détails du voyage */}
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    {/* Parcours */}
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Parcours</p>
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">
+                        <span className="font-medium text-gray-900">
                           {voyage.gare_depart_detail?.code || voyage.gare_depart}
                         </span>
                         <span className="text-gray-400">→</span>
-                        <span className="font-medium">
+                        <span className="font-medium text-gray-900">
                           {voyage.gare_arrivee_detail?.code || voyage.gare_arrivee}
                         </span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
+                    </div>
+
+                    {/* Formation */}
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Formation</p>
                       <div className="flex items-center gap-2">
                         <Train className="h-4 w-4 text-gray-400" />
-                        <span>{getFormationText(voyage)}</span>
+                        <span className="text-sm text-gray-900">{getFormationText(voyage)}</span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <Users className="h-3 w-3 text-blue-500" />
-                          <span>{voyage.places_max} places</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Package className="h-3 w-3 text-orange-500" />
-                          <span>{voyage.poids_max} tonnes</span>
-                        </div>
+                    </div>
+
+                    {/* Quota Places */}
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Quota Places</p>
+                      <div className="flex items-center gap-2">
+                        <Users className="h-4 w-4 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900">
+                          {voyage.total_places_attribuees} / {voyage.places_max}
+                        </span>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${placesStatus.bg} ${placesStatus.color}`}>
+                          {voyage.places_max > 0 
+                            ? Math.round((voyage.total_places_attribuees / voyage.places_max) * 100)
+                            : 0}%
+                        </span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <a
-                        href={`/ctv/quotas?voyage=${voyage.id}`}
-                        className="inline-flex items-center gap-1 px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium transition"
-                      >
-                        <Clock className="h-3 w-3" />
-                        Attribuer quotas
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+
+                    {/* Quota Bagages */}
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Quota Bagages</p>
+                      <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-orange-500" />
+                        <span className="text-sm font-medium text-gray-900">
+                          {voyage.total_tonnes_attribuees}T / {voyage.poids_max}T
+                        </span>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${tonnesStatus.bg} ${tonnesStatus.color}`}>
+                          {voyage.poids_max > 0 
+                            ? Math.round((voyage.total_tonnes_attribuees / voyage.poids_max) * 100)
+                            : 0}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

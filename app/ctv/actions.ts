@@ -112,24 +112,7 @@ export async function saveQuotaTickets(
     return { error: 'Accès non autorisé' };
   }
 
-  // Vérifier le voyage
-  const { data: voyage } = await supabaseAdmin
-    .from('voyages')
-    .select('places_max')
-    .eq('id', voyageId)
-    .single();
-
-  if (!voyage) {
-    return { error: 'Voyage non trouvé' };
-  }
-
-  // Vérifier que le total des quotas ne dépasse pas les places max
-  const totalQuotas = quotas.reduce((sum, q) => sum + q.quota, 0);
-  if (totalQuotas > voyage.places_max) {
-    return { error: `Le total des quotas (${totalQuotas}) dépasse la capacité du train (${voyage.places_max} places)` };
-  }
-
-  // Upsert les quotas
+  // Upsert les quotas (sans vérification de limite)
   for (const q of quotas) {
     await supabaseAdmin
       .from('quota_tickets')
@@ -185,24 +168,7 @@ export async function saveQuotaBagages(
     return { error: 'Accès non autorisé' };
   }
 
-  // Vérifier le voyage
-  const { data: voyage } = await supabaseAdmin
-    .from('voyages')
-    .select('poids_max')
-    .eq('id', voyageId)
-    .single();
-
-  if (!voyage) {
-    return { error: 'Voyage non trouvé' };
-  }
-
-  // Vérifier que le total des quotas ne dépasse pas le poids max
-  const totalPoids = quotas.reduce((sum, q) => sum + q.quota_tonnes, 0);
-  if (totalPoids > voyage.poids_max) {
-    return { error: `Le total des quotas (${totalPoids}T) dépasse la capacité du train (${voyage.poids_max}T)` };
-  }
-
-  // Upsert les quotas
+  // Upsert les quotas (sans vérification de limite)
   for (const q of quotas) {
     await supabaseAdmin
       .from('quota_bagages')

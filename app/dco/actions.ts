@@ -34,7 +34,6 @@ export async function createVoyage(
     return { error: 'La gare de départ et d\'arrivée doivent être différentes' };
   }
 
-  // Validation des formations
   if (formation_voiture < 0 || formation_voiture > 2) {
     return { error: 'Le nombre de voitures 1ère classe doit être entre 0 et 2' };
   }
@@ -47,7 +46,6 @@ export async function createVoyage(
     return { error: 'Le nombre de wagons marchandises doit être entre 2 et 6' };
   }
 
-  // Vérifier qu'il y a au moins un élément dans la formation
   if (formation_voiture === 0 && formation_voiture2 === 0 && formation_wagon === 0) {
     return { error: 'La formation doit contenir au moins un élément' };
   }
@@ -75,7 +73,6 @@ export async function createVoyage(
     return { error: 'Non authentifié' };
   }
 
-  // Vérifier que l'utilisateur est DCO
   const { data: profile } = await supabaseAdmin
     .from('profiles')
     .select('role')
@@ -86,7 +83,6 @@ export async function createVoyage(
     return { error: 'Accès non autorisé' };
   }
 
-  // Créer le voyage
   const { error } = await supabaseAdmin
     .from('voyages')
     .insert({
@@ -170,7 +166,6 @@ export async function updateVoyage(
     return { error: 'Non authentifié' };
   }
 
-  // Vérifier que le voyage existe et est actif
   const { data: voyage, error: fetchError } = await supabaseAdmin
     .from('voyages')
     .select('statut')
@@ -185,7 +180,6 @@ export async function updateVoyage(
     return { error: 'Impossible de modifier un voyage terminé' };
   }
 
-  // Mettre à jour
   const { error } = await supabaseAdmin
     .from('voyages')
     .update({
@@ -245,4 +239,84 @@ export async function terminerVoyage(id: string): Promise<ActionResponse> {
 
   revalidatePath('/dco/historique');
   return { success: true };
+}
+
+// NOUVELLE FONCTION : Récupérer les voyages actifs avec leurs quotas
+export async function getVoyagesActifsWithQuotas() {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: 'Non authentifié' };
+  }
+
+  // Vérifier que l'utilisateur est DCO
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role !== 'DCO') {
+    return { error: 'Accès non autorisé' };
+  }
+
+  // Récupérer les voyages actifs
+  const { data: voyages, error: voyagesError } = await supabaseAdmin
+    .from('voyages')
+    .select(`
+      *,
+      gare_depart_detail:gare_depart(code, gare),
+      gare_arrivee_detail:gare_arrivee(code, gare)
+    `)
+    .eq('statut', 'actif')
+    .order('date_voyage', { ascending: true });
+
+  if (voyagesError) {
+    return { error: 'Erreur lors du chargement des voyages' };
+  }
+
+  // Pour chaque voyage, récupérer les quotas
+  const voyagesWithQuotas = await Promise.all(
+    (voyages || []).map(async (voyage) => {
+      // Récupérer les quotas tickets
+      const { data: tickets } = await supabaseAdmin
+        .from('quota_tickets')
+        .select('quota')
+        .eq('voyage_id', voyage.id);
+
+      // Récupérer les quotas bagages
+      const { data: bagages } = await supabaseAdmin
+        .from('quota_bagages')
+        .select('quota_tonnes')
+        .eq('voyage_id', voyage.id);
+
+      const totalPlaces = tickets?.reduce((sum, t) => sum + t.quota, 0) || 0;
+      const totalTonnes = bagages?.reduce((sum, b) => sum + b.quota_tonnes, 0) || 0;
+
+      return {
+        ...voyage,
+        total_places_attribuees: totalPlaces,
+        total_tonnes_attribuees: totalTonnes,
+      };
+    })
+  );
+
+  return { voyages: voyagesWithQuotas };
 }

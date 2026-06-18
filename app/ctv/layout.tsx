@@ -1,8 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Ticket, Package, LogOut } from 'lucide-react';
+import { LayoutDashboard, LogOut } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -42,11 +41,6 @@ export default function CTVLayout({
       name: 'Tableau de bord',
       href: '/ctv',
       icon: <LayoutDashboard className="h-5 w-5" />,
-    },
-    {
-      name: 'Attribution des quotas',
-      href: '/ctv/quotas',
-      icon: <Ticket className="h-5 w-5" />,
     },
   ];
 

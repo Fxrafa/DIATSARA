@@ -171,35 +171,18 @@ export default function QuotasPage() {
 
   const handleTicketChange = (gareNum: number, value: number) => {
     const newValue = Math.max(0, value);
-    const maxPlaces = voyage?.places_max || 0;
-    const currentOther = quotaTickets
-      .filter(q => q.gare_num !== gareNum)
-      .reduce((sum, q) => sum + q.quota, 0);
-    
-    // Ne pas dépasser les places max
-    const maxAllowed = maxPlaces - currentOther;
-    const finalValue = Math.min(newValue, maxAllowed);
-
     setQuotaTickets(prev =>
       prev.map(q =>
-        q.gare_num === gareNum ? { ...q, quota: finalValue } : q
+        q.gare_num === gareNum ? { ...q, quota: newValue } : q
       )
     );
   };
 
   const handleBagageChange = (commune: string, value: number) => {
     const newValue = Math.max(0, value);
-    const maxPoids = voyage?.poids_max || 0;
-    const currentOther = quotaBagages
-      .filter(q => q.commune_tutelle !== commune)
-      .reduce((sum, q) => sum + q.quota_tonnes, 0);
-    
-    const maxAllowed = maxPoids - currentOther;
-    const finalValue = Math.min(newValue, maxAllowed);
-
     setQuotaBagages(prev =>
       prev.map(q =>
-        q.commune_tutelle === commune ? { ...q, quota_tonnes: finalValue } : q
+        q.commune_tutelle === commune ? { ...q, quota_tonnes: newValue } : q
       )
     );
   };
@@ -336,7 +319,7 @@ export default function QuotasPage() {
         </button>
       </div>
 
-      {/* Total indicateur */}
+      {/* Total indicateur - en lecture seule */}
       <div className="bg-blue-50 rounded-lg p-4 border border-blue-200 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-blue-800">
@@ -352,11 +335,11 @@ export default function QuotasPage() {
               </>
             )}
           </div>
-          <div className="text-sm text-gray-900 font-semibold">
+          <div className="text-sm text-gray-500">
             {activeTab === 'tickets' ? (
-              <span>Restant : <span className="text-blue-600">{voyage.places_max - totalTickets}</span></span>
+              <span>Restant : {voyage.places_max - totalTickets}</span>
             ) : (
-              <span>Restant : <span className="text-orange-600">{voyage.poids_max - totalBagages} tonnes</span></span>
+              <span>Restant : {voyage.poids_max - totalBagages} tonnes</span>
             )}
           </div>
         </div>
