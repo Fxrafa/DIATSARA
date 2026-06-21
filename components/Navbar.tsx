@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import LogoutButton from './LogoutButton';
 import { User, Shield, Briefcase, Train, Store, Home, Menu, X } from 'lucide-react';
@@ -12,6 +13,7 @@ interface Profile {
 }
 
 export default function Navbar() {
+  const pathname = usePathname();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -33,12 +35,10 @@ export default function Navbar() {
   }, []);
 
   const getPageTitle = () => {
-    if (typeof window === 'undefined') return 'DIATSARA';
-    const path = window.location.pathname;
-    if (path.includes('/admin')) return 'Administration';
-    if (path.includes('/dco')) return 'Contrôle des opérations';
-    if (path.includes('/ctv')) return 'Gestion des trains';
-    if (path.includes('/vbc')) return 'Espace Vendeur';
+    if (pathname.includes('/admin')) return 'Administration';
+    if (pathname.includes('/dco')) return 'Contrôle des opérations';
+    if (pathname.includes('/ctv')) return 'Gestion des trains';
+    if (pathname.includes('/vbc')) return 'Espace Vendeur';
     return 'DIATSARA';
   };
 
@@ -72,6 +72,8 @@ export default function Navbar() {
     return colors[role] || 'bg-gray-500';
   };
 
+  const pageTitle = getPageTitle();
+
   return (
     <nav className="bg-linear-to-r from-blue-700 to-blue-900 text-white shadow-lg sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -85,7 +87,7 @@ export default function Navbar() {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight">DIATSARA</h1>
-              <p className="text-xs text-blue-200 hidden sm:block">{getPageTitle()}</p>
+              <p className="text-xs text-blue-200 hidden sm:block">{pageTitle}</p>
             </div>
           </div>
 
