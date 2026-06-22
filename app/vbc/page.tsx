@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import Navbar from '@/components/Navbar';
 import { 
   Users, Package, Ticket, MapPin, Train, Calendar, 
-  CheckCircle, Clock, AlertCircle, Loader2 
+  CheckCircle, Clock, AlertCircle, Loader2, History
 } from 'lucide-react';
 import { getVBCData } from './actions';
 
@@ -226,7 +226,7 @@ export default function VBCPage() {
                         Sens {voyage.sens}
                       </span>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
                       <span className="flex items-center gap-1 text-blue-600">
                         <Train className="h-4 w-4" />
                         {voyage.gare_depart_detail?.code} → {voyage.gare_arrivee_detail?.code}
@@ -237,6 +237,13 @@ export default function VBCPage() {
                       >
                         <Ticket className="h-3 w-3" />
                         Vendre
+                      </a>
+                      <a
+                        href={`/vbc/historique/${voyage.id}`}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium transition"
+                      >
+                        <History className="h-3 w-3" />
+                        Historique
                       </a>
                     </div>
                   </div>

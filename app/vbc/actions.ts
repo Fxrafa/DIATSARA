@@ -338,3 +338,35 @@ export async function getTarifBagageColis(unite: string) {
 
   return { tarif };
 }
+
+export async function getTicketsVendus(voyageId: string, gareRef: number) {
+  // Récupérer les tickets voyageurs
+  const { data: voyageurs } = await supabaseAdmin
+    .from('ticket_voyageur')
+    .select('*')
+    .eq('voyage_id', voyageId)
+    .eq('gare_ref', gareRef)
+    .order('created_at', { ascending: false });
+
+  // Récupérer les tickets bagages
+  const { data: bagages } = await supabaseAdmin
+    .from('ticket_bagage')
+    .select('*')
+    .eq('voyage_id', voyageId)
+    .eq('gare_ref', gareRef)
+    .order('created_at', { ascending: false });
+
+  // Récupérer les tickets colis
+  const { data: colis } = await supabaseAdmin
+    .from('ticket_colis')
+    .select('*')
+    .eq('voyage_id', voyageId)
+    .eq('gare_ref', gareRef)
+    .order('created_at', { ascending: false });
+
+  return {
+    voyageurs: voyageurs || [],
+    bagages: bagages || [],
+    colis: colis || [],
+  };
+}

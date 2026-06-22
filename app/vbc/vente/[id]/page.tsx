@@ -159,7 +159,7 @@ export default function VentePage() {
     return false;
   };
 
-  // Fonction pour obtenir les gares disponibles selon le sens et le trajet du voyage
+  // Fonction pour obtenir les gares disponibles selon le sens du voyage
   const getAvailableGares = () => {
     if (!gare || !voyage) return [];
     
@@ -649,15 +649,22 @@ export default function VentePage() {
       if (ticketType === 'bagage' || ticketType === 'voyageur_bagage') {
         const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
         const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
-        const poidsEquivalent = getPoidsEquivalent(poids, volume);
         
+        // ✅ Calcul du montant avec les tarifs réels (séparés)
         let montantBag = 0;
         let partMadarailBag = 0;
 
-        if (tarifKg && poidsEquivalent > 0) {
-          montantBag = poidsEquivalent * tarifKg.tarif_vente;
-          partMadarailBag = poidsEquivalent * tarifKg.part_madarail;
+        if (tarifKg && poids > 0) {
+          montantBag += poids * tarifKg.tarif_vente;
+          partMadarailBag += poids * tarifKg.part_madarail;
         }
+        if (tarifM3 && volume > 0) {
+          montantBag += volume * tarifM3.tarif_vente;
+          partMadarailBag += volume * tarifM3.part_madarail;
+        }
+
+        // Poids équivalent pour le quota
+        const poidsEquivalent = getPoidsEquivalent(poids, volume);
 
         const numTicket = generateTicketNumber('B');
         const { error: bagageError } = await supabase
@@ -670,7 +677,7 @@ export default function VentePage() {
             poids: poids,
             volume: volume,
             poids_volume: `${poids}kg / ${volume}m3`,
-            montant: montantBag,
+            montant: montantBag, // ✅ Prix avec tarifs réels
             part_madarail: partMadarailBag,
             voyage_id: voyageIdStr,
             gare_ref: gareRef,
@@ -691,15 +698,22 @@ export default function VentePage() {
       if (ticketType === 'colis') {
         const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
         const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
-        const poidsEquivalent = getPoidsEquivalent(poids, volume);
         
+        // ✅ Calcul du montant avec les tarifs réels (séparés)
         let montantCol = 0;
         let partMadarailCol = 0;
 
-        if (tarifKg && poidsEquivalent > 0) {
-          montantCol = poidsEquivalent * tarifKg.tarif_vente;
-          partMadarailCol = poidsEquivalent * tarifKg.part_madarail;
+        if (tarifKg && poids > 0) {
+          montantCol += poids * tarifKg.tarif_vente;
+          partMadarailCol += poids * tarifKg.part_madarail;
         }
+        if (tarifM3 && volume > 0) {
+          montantCol += volume * tarifM3.tarif_vente;
+          partMadarailCol += volume * tarifM3.part_madarail;
+        }
+
+        // Poids équivalent pour le quota
+        const poidsEquivalent = getPoidsEquivalent(poids, volume);
 
         const numTicket = generateTicketNumber('C');
         const { error: colisError } = await supabase
@@ -712,7 +726,7 @@ export default function VentePage() {
             poids: poids,
             volume: volume,
             poids_volume: `${poids}kg / ${volume}m3`,
-            montant: montantCol,
+            montant: montantCol, // ✅ Prix avec tarifs réels
             part_madarail: partMadarailCol,
             nom_expediteur: colisForm.nom_expediteur,
             num_tel_expediteur: colisForm.num_tel_expediteur,
@@ -748,7 +762,6 @@ export default function VentePage() {
           ...prev,
           tickets_vendus: prev.tickets_vendus + 1,
         }));
-        // Mettre à jour les places disponibles
         if (voyageurForm.classe === '1ere') {
           setPlaces(prev => ({
             ...prev,
@@ -762,6 +775,7 @@ export default function VentePage() {
         }
       }
       
+      // Mise à jour du quota bagage avec le poids équivalent
       if (ticketType === 'bagage' || ticketType === 'voyageur_bagage' || ticketType === 'colis') {
         let poidsEquivalent = 0;
         if (ticketType === 'bagage' || ticketType === 'voyageur_bagage') {
