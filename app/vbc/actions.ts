@@ -128,17 +128,36 @@ export async function getVBCData() {
       const totalBagagesVendus = bagagesVendus?.reduce((sum, b) => sum + (b.poids || 0), 0) || 0;
 
       const totalTickets = quotaTickets.reduce((sum, q) => sum + q.quota, 0);
-      // Convertir les tonnes en KG
       const totalBagages = quotaBagages.reduce((sum, q) => sum + (q.quota_tonnes * 1000), 0);
+
+      // Récupérer les places disponibles par classe
+      let places_1ere = 0;
+      let places_2eme = 0;
+
+      // Récupérer les tickets vendus par classe pour ce voyage
+      if (ticketsVendus) {
+        const tickets1ere = ticketsVendus.filter((t: any) => t.classe === '1ere');
+        const tickets2eme = ticketsVendus.filter((t: any) => t.classe === '2eme');
+        
+        // Calculer les places disponibles
+        places_1ere = (voyage.formation_voiture * 60) - tickets1ere.length;
+        places_2eme = (voyage.formation_voiture2 * 72) - tickets2eme.length;
+        
+        // Ne pas aller en dessous de 0
+        places_1ere = Math.max(0, places_1ere);
+        places_2eme = Math.max(0, places_2eme);
+      }
 
       return {
         voyage,
         quota_tickets: quotaTickets,
         quota_bagages: quotaBagages,
         total_tickets: totalTickets,
-        total_bagages: totalBagages, // Maintenant en KG
+        total_bagages: totalBagages,
         tickets_vendus: totalTicketsVendus,
-        bagages_vendus: totalBagagesVendus, // Déjà en KG
+        bagages_vendus: totalBagagesVendus,
+        places_1ere: places_1ere,
+        places_2eme: places_2eme,
       };
     })
   );
@@ -198,6 +217,8 @@ export async function getVoyageDetails(voyageId: string) {
   let quotaBagagesTotal = 0;
   let ticketsVendus = 0;
   let bagagesVendus = 0;
+  let places_1ere = 0;
+  let places_2eme = 0;
 
   if (profile?.gare_ref) {
     const { data: tickets } = await supabaseAdmin
@@ -210,13 +231,26 @@ export async function getVoyageDetails(voyageId: string) {
       quotaTicketsTotal = tickets.reduce((sum, q) => sum + q.quota, 0);
     }
 
+    // Récupérer les tickets vendus par classe pour ce voyage
     const { data: vendus } = await supabaseAdmin
       .from('ticket_voyageur')
-      .select('*')
+      .select('classe')
       .eq('voyage_id', voyageId)
       .eq('gare_ref', profile.gare_ref);
 
     ticketsVendus = vendus?.length || 0;
+
+    // Calculer les places disponibles par classe
+    if (vendus) {
+      const tickets1ere = vendus.filter((t: any) => t.classe === '1ere');
+      const tickets2eme = vendus.filter((t: any) => t.classe === '2eme');
+      
+      places_1ere = (voyage.formation_voiture * 60) - tickets1ere.length;
+      places_2eme = (voyage.formation_voiture2 * 72) - tickets2eme.length;
+      
+      places_1ere = Math.max(0, places_1ere);
+      places_2eme = Math.max(0, places_2eme);
+    }
 
     const { data: gareData } = await supabaseAdmin
       .from('gare')
@@ -232,7 +266,6 @@ export async function getVoyageDetails(voyageId: string) {
         .eq('commune_tutelle', gareData.commune_tutelle);
 
       if (bagages) {
-        // Convertir les tonnes en KG
         quotaBagagesTotal = bagages.reduce((sum, q) => sum + (q.quota_tonnes * 1000), 0);
       }
 
@@ -251,8 +284,12 @@ export async function getVoyageDetails(voyageId: string) {
     quotas: {
       tickets_max: quotaTicketsTotal,
       tickets_vendus: ticketsVendus,
-      bagages_max: quotaBagagesTotal, // Maintenant en KG
-      bagages_vendus: bagagesVendus, // Déjà en KG
+      bagages_max: quotaBagagesTotal,
+      bagages_vendus: bagagesVendus,
+    },
+    places: {
+      places_1ere,
+      places_2eme,
     }
   };
 }

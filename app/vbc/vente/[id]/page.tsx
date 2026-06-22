@@ -1,4 +1,3 @@
- 
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
@@ -26,6 +25,8 @@ interface Voyage {
   places_max: number;
   poids_max: number;
   statut: string;
+  formation_voiture: number;
+  formation_voiture2: number;
   gare_depart_detail?: { code: string; gare: string };
   gare_arrivee_detail?: { code: string; gare: string };
 }
@@ -66,6 +67,12 @@ export default function VentePage() {
     tickets_vendus: 0,
     bagages_max: 0,
     bagages_vendus: 0,
+  });
+
+  // Places disponibles par classe
+  const [places, setPlaces] = useState({
+    places_1ere: 0,
+    places_2eme: 0,
   });
 
   // États des formulaires
@@ -109,6 +116,11 @@ export default function VentePage() {
   const [tarifKg, setTarifKg] = useState<{ tarif_vente: number; part_madarail: number } | null>(null);
   const [tarifM3, setTarifM3] = useState<{ tarif_vente: number; part_madarail: number } | null>(null);
 
+  // Fonction pour calculer le poids équivalent (poids + volume * 500) - utilisé uniquement pour le quota
+  const getPoidsEquivalent = (poids: number, volume: number) => {
+    return poids + (volume * 500);
+  };
+
   // Calcul du quota restant pour les bagages
   const getBagageRestant = () => {
     return quotas.bagages_max - quotas.bagages_vendus;
@@ -117,6 +129,11 @@ export default function VentePage() {
   // Vérifier si les quotas sont atteints
   const isTicketsFull = quotas.tickets_max > 0 && quotas.tickets_vendus >= quotas.tickets_max;
   const isBagagesFull = quotas.bagages_max > 0 && quotas.bagages_vendus >= quotas.bagages_max;
+
+  // Vérifier si les classes sont pleines
+  const is1ereFull = places.places_1ere <= 0;
+  const is2emeFull = places.places_2eme <= 0;
+  const isAllClassesFull = is1ereFull && is2emeFull;
 
   // Vérifier si le poids dépasse le quota restant pour le bagage
   const isPoidsDepasseQuotaBagage = () => {
@@ -174,24 +191,30 @@ export default function VentePage() {
       { code: 'MNG', name: 'Manguiers', num: 25 },
     ];
 
-    const currentIndex = allGares.findIndex(g => g.code === gare.code);
-    const arriveeIndex = allGares.findIndex(g => g.code === voyage.gare_arrivee_detail?.code);
+    const gareCodes = allGares.map(g => g.code);
+    const currentIndex = gareCodes.indexOf(gare.code);
+    const departIndex = gareCodes.indexOf(voyage.gare_depart_detail?.code || '');
+    const arriveeIndex = gareCodes.indexOf(voyage.gare_arrivee_detail?.code || '');
 
-    // Si la gare du VBC est après la destination, il ne peut pas vendre pour ce voyage
-    if (currentIndex >= arriveeIndex) {
-      return [];
-    }
-
-    // Sens impair (2131): direction MGA -> MNG (vers le Nord)
+    // Si la gare du VBC n'est pas entre le départ et l'arrivée, il ne peut pas vendre
+    // Sens impair (2131): direction MGA -> MNG (Nord)
     if (voyage.sens === '2131') {
-      // Gares entre la position actuelle et la destination (exclure la gare actuelle)
+      // Le VBC doit être entre départ et arrivée (inclus)
+      if (currentIndex < departIndex || currentIndex > arriveeIndex) {
+        return [];
+      }
+      // Gares après la gare du VBC jusqu'à l'arrivée (exclure la gare actuelle)
       return allGares.slice(currentIndex + 1, arriveeIndex + 1);
     } 
-    // Sens pair (2132): direction MNG -> MGA (vers le Sud)
+    // Sens pair (2132): direction MNG -> MGA (Sud)
     else {
-      // Pour le sens pair, le VBC doit être avant la destination
-      // Gares entre la position actuelle et la destination
-      return allGares.slice(currentIndex + 1, arriveeIndex + 1);
+      // Le VBC doit être entre arrivée et départ (inclus)
+      if (currentIndex < arriveeIndex || currentIndex > departIndex) {
+        return [];
+      }
+      // Gares après la gare du VBC jusqu'au départ (exclure la gare actuelle)
+      // Pour le sens pair, le VBC est avant le départ
+      return allGares.slice(currentIndex + 1, departIndex + 1);
     }
   };
 
@@ -242,6 +265,9 @@ export default function VentePage() {
         setVoyage(result.voyage);
         if (result.quotas) {
           setQuotas(result.quotas);
+        }
+        if (result.places) {
+          setPlaces(result.places);
         }
 
         const lastNum = await getLastTicketNumber(voyageId, profileData.gare_ref);
@@ -303,43 +329,37 @@ export default function VentePage() {
     }
   }, [voyageurForm.arrivee, voyageurForm.classe, gare]);
 
-// Calcul du montant bagage (avec tarifs séparés pour poids et volume)
-useEffect(() => {
-  let montant = 0;
-  const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
-  const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
+  // Calcul du montant bagage (avec tarifs séparés pour poids et volume)
+  useEffect(() => {
+    let montant = 0;
+    const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
+    const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
 
-  // Prix basé sur les tarifs réels de la base de données
-  if (tarifKg && poids > 0) {
-    montant += poids * tarifKg.tarif_vente;
-  }
-  if (tarifM3 && volume > 0) {
-    montant += volume * tarifM3.tarif_vente;
-  }
-  setMontantBagage(montant);
-}, [bagageForm.poids, bagageForm.volume, bagageForm.usePoids, bagageForm.useVolume, tarifKg, tarifM3]);
+    // Prix basé sur les tarifs réels de la base de données
+    if (tarifKg && poids > 0) {
+      montant += poids * tarifKg.tarif_vente;
+    }
+    if (tarifM3 && volume > 0) {
+      montant += volume * tarifM3.tarif_vente;
+    }
+    setMontantBagage(montant);
+  }, [bagageForm.poids, bagageForm.volume, bagageForm.usePoids, bagageForm.useVolume, tarifKg, tarifM3]);
 
-// Calcul du montant colis (avec tarifs séparés pour poids et volume)
-useEffect(() => {
-  let montant = 0;
-  const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
-  const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
+  // Calcul du montant colis (avec tarifs séparés pour poids et volume)
+  useEffect(() => {
+    let montant = 0;
+    const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
+    const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
 
-  // Prix basé sur les tarifs réels de la base de données
-  if (tarifKg && poids > 0) {
-    montant += poids * tarifKg.tarif_vente;
-  }
-  if (tarifM3 && volume > 0) {
-    montant += volume * tarifM3.tarif_vente;
-  }
-  setMontantColis(montant);
-}, [colisForm.poids, colisForm.volume, colisForm.usePoids, colisForm.useVolume, tarifKg, tarifM3]);
-
-// Fonction pour calculer le poids équivalent (utilisé uniquement pour le quota)
-// 1m3 = 500kg équivalent pour le quota
-const getPoidsEquivalent = (poids: number, volume: number) => {
-  return poids + (volume * 500);
-};
+    // Prix basé sur les tarifs réels de la base de données
+    if (tarifKg && poids > 0) {
+      montant += poids * tarifKg.tarif_vente;
+    }
+    if (tarifM3 && volume > 0) {
+      montant += volume * tarifM3.tarif_vente;
+    }
+    setMontantColis(montant);
+  }, [colisForm.poids, colisForm.volume, colisForm.usePoids, colisForm.useVolume, tarifKg, tarifM3]);
 
   // Calcul du montant total pour Voyageur + Bagage
   useEffect(() => {
@@ -447,6 +467,8 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
     if (!voyageurForm.nom.trim()) return 'Nom du voyageur requis';
     if (!voyageurForm.cin.trim() || voyageurForm.cin.length !== 12) return 'CIN doit contenir 12 chiffres';
     if (!voyageurForm.arrivee) return 'Arrivée requise';
+    if (voyageurForm.classe === '1ere' && is1ereFull) return '1ère classe complète';
+    if (voyageurForm.classe === '2eme' && is2emeFull) return '2ème classe complète';
     return null;
   };
 
@@ -503,6 +525,14 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
     if (ticketType === 'voyageur' || ticketType === 'voyageur_bagage') {
       if (isTicketsFull) {
         setError('Quota de tickets voyageurs atteint pour ce voyage');
+        return;
+      }
+      if (is1ereFull && voyageurForm.classe === '1ere') {
+        setError('1ère classe complète');
+        return;
+      }
+      if (is2emeFull && voyageurForm.classe === '2eme') {
+        setError('2ème classe complète');
         return;
       }
     }
@@ -718,6 +748,18 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
           ...prev,
           tickets_vendus: prev.tickets_vendus + 1,
         }));
+        // Mettre à jour les places disponibles
+        if (voyageurForm.classe === '1ere') {
+          setPlaces(prev => ({
+            ...prev,
+            places_1ere: prev.places_1ere - 1,
+          }));
+        } else {
+          setPlaces(prev => ({
+            ...prev,
+            places_2eme: prev.places_2eme - 1,
+          }));
+        }
       }
       
       if (ticketType === 'bagage' || ticketType === 'voyageur_bagage' || ticketType === 'colis') {
@@ -877,6 +919,12 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
             <span>Le quota de bagages est atteint pour ce voyage. Vous ne pouvez plus vendre de tickets bagages.</span>
           </div>
         )}
+        {isAllClassesFull && (
+          <div className="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+            <span>Toutes les classes sont complètes pour ce voyage.</span>
+          </div>
+        )}
 
         {/* Type de ticket - Toggle Switch */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
@@ -884,11 +932,11 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
           <div className="flex flex-wrap gap-2 bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setTicketType('voyageur')}
-              disabled={isTicketsFull}
+              disabled={isTicketsFull || isAllClassesFull}
               className={`flex-1 min-w-25 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
-                ticketType === 'voyageur' && !isTicketsFull
+                ticketType === 'voyageur' && !isTicketsFull && !isAllClassesFull
                   ? 'bg-orange-600 text-white shadow-lg'
-                  : isTicketsFull
+                  : isTicketsFull || isAllClassesFull
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     : 'text-gray-600 hover:bg-gray-200'
               }`}
@@ -912,11 +960,11 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
             </button>
             <button
               onClick={() => setTicketType('voyageur_bagage')}
-              disabled={isTicketsFull || isBagagesFull}
+              disabled={isTicketsFull || isBagagesFull || isAllClassesFull}
               className={`flex-1 min-w-30 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
-                ticketType === 'voyageur_bagage' && !isTicketsFull && !isBagagesFull
+                ticketType === 'voyageur_bagage' && !isTicketsFull && !isBagagesFull && !isAllClassesFull
                   ? 'bg-orange-600 text-white shadow-lg'
-                  : isTicketsFull || isBagagesFull
+                  : isTicketsFull || isBagagesFull || isAllClassesFull
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     : 'text-gray-600 hover:bg-gray-200'
               }`}
@@ -926,10 +974,13 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
             </button>
             <button
               onClick={() => setTicketType('colis')}
+              disabled={isBagagesFull}
               className={`flex-1 min-w-25 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
-                ticketType === 'colis'
+                ticketType === 'colis' && !isBagagesFull
                   ? 'bg-orange-600 text-white shadow-lg'
-                  : 'text-gray-600 hover:bg-gray-200'
+                  : isBagagesFull
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'text-gray-600 hover:bg-gray-200'
               }`}
             >
               <Box className="h-4 w-4" />
@@ -955,7 +1006,7 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
         {/* Formulaire */}
         <div className="bg-white rounded-xl shadow-sm p-6">
           {/* Section Voyageur */}
-          {(ticketType === 'voyageur' || ticketType === 'voyageur_bagage') && !isTicketsFull && (
+          {(ticketType === 'voyageur' || ticketType === 'voyageur_bagage') && !isTicketsFull && !isAllClassesFull && (
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <Ticket className="h-5 w-5 text-orange-600" />
@@ -1020,26 +1071,38 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
                     <button
                       type="button"
                       onClick={() => setVoyageurForm({ ...voyageurForm, classe: '1ere' })}
+                      disabled={is1ereFull}
                       className={`flex-1 px-4 py-2 rounded-lg border transition ${
-                        voyageurForm.classe === '1ere'
+                        voyageurForm.classe === '1ere' && !is1ereFull
                           ? 'border-orange-600 bg-orange-50 text-orange-700 font-medium'
-                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                          : is1ereFull
+                            ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'border-gray-300 text-gray-600 hover:bg-gray-50'
                       }`}
                     >
-                      1ère
+                      1ère {is1ereFull ? '(Complet)' : `(${places.places_1ere} dispo)`}
                     </button>
                     <button
                       type="button"
                       onClick={() => setVoyageurForm({ ...voyageurForm, classe: '2eme' })}
+                      disabled={is2emeFull}
                       className={`flex-1 px-4 py-2 rounded-lg border transition ${
-                        voyageurForm.classe === '2eme'
+                        voyageurForm.classe === '2eme' && !is2emeFull
                           ? 'border-orange-600 bg-orange-50 text-orange-700 font-medium'
-                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                          : is2emeFull
+                            ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'border-gray-300 text-gray-600 hover:bg-gray-50'
                       }`}
                     >
-                      2ème (défaut)
+                      2ème {is2emeFull ? '(Complet)' : `(${places.places_2eme} dispo)`}
                     </button>
                   </div>
+                  {(is1ereFull || is2emeFull) && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {is1ereFull && is2emeFull ? 'Toutes les classes sont complètes' : 
+                       is1ereFull ? '1ère classe complète' : '2ème classe complète'}
+                    </p>
+                  )}
                 </div>
                 {voyageurForm.arrivee && tarifInfo && (
                   <div className="md:col-span-2 bg-gray-50 rounded-lg p-3">
@@ -1062,6 +1125,7 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
               </h2>
               <div className="mb-3 text-sm text-gray-600">
                 Quota restant: <span className="font-bold text-blue-700">{bagageRestant.toFixed(1)} kg</span>
+                <span className="text-xs text-gray-400 ml-2">(1m³ = 500kg équivalent)</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1145,36 +1209,35 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
                 </div>
               </div>
               {(bagageForm.usePoids || bagageForm.useVolume) && (bagageForm.poids || bagageForm.volume) && (
-              // Affichage du montant estimé avec détail
-              <div className="mt-3 bg-blue-50 rounded-lg p-3">
-                <div className="space-y-1 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Poids équivalent (pour quota):</span>
-                    <span className="font-bold text-blue-700">
-                      {getPoidsEquivalent(
-                        bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0,
-                        bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0
-                      ).toFixed(1)} kg
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Montant estimé:</span>
-                    <span className="font-bold text-blue-700">{montantBagage} Ar</span>
-                  </div>
-                  {bagageForm.usePoids && tarifKg && (
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>Poids: {parseFloat(bagageForm.poids) || 0} kg × {tarifKg.tarif_vente} Ar/kg</span>
-                      <span>{(parseFloat(bagageForm.poids) || 0) * tarifKg.tarif_vente} Ar</span>
+                <div className="mt-3 bg-blue-50 rounded-lg p-3">
+                  <div className="space-y-1 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">Poids équivalent (pour quota):</span>
+                      <span className="font-bold text-blue-700">
+                        {getPoidsEquivalent(
+                          bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0,
+                          bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0
+                        ).toFixed(1)} kg
+                      </span>
                     </div>
-                  )}
-                  {bagageForm.useVolume && tarifM3 && (
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>Volume: {parseFloat(bagageForm.volume) || 0} m³ × {tarifM3.tarif_vente} Ar/m³</span>
-                      <span>{(parseFloat(bagageForm.volume) || 0) * tarifM3.tarif_vente} Ar</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">Montant estimé:</span>
+                      <span className="font-bold text-blue-700">{montantBagage} Ar</span>
                     </div>
-                  )}
+                    {bagageForm.usePoids && tarifKg && (
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>Poids: {parseFloat(bagageForm.poids) || 0} kg × {tarifKg.tarif_vente} Ar/kg</span>
+                        <span>{(parseFloat(bagageForm.poids) || 0) * tarifKg.tarif_vente} Ar</span>
+                      </div>
+                    )}
+                    {bagageForm.useVolume && tarifM3 && (
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>Volume: {parseFloat(bagageForm.volume) || 0} m³ × {tarifM3.tarif_vente} Ar/m³</span>
+                        <span>{(parseFloat(bagageForm.volume) || 0) * tarifM3.tarif_vente} Ar</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
               )}
               {isPoidsDepasseQuotaBagage() && (
                 <div className="mt-2 flex items-center gap-2 text-red-600 text-sm">
@@ -1324,36 +1387,35 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
                 </div>
               </div>
               {(colisForm.usePoids || colisForm.useVolume) && (colisForm.poids || colisForm.volume) && (
-              // Affichage du montant estimé avec détail
-              <div className="mt-3 bg-blue-50 rounded-lg p-3">
-                <div className="space-y-1 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Poids équivalent (pour quota):</span>
-                    <span className="font-bold text-blue-700">
-                      {getPoidsEquivalent(
-                        bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0,
-                        bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0
-                      ).toFixed(1)} kg
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Montant estimé:</span>
-                    <span className="font-bold text-blue-700">{montantBagage} Ar</span>
-                  </div>
-                  {bagageForm.usePoids && tarifKg && (
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>Poids: {parseFloat(bagageForm.poids) || 0} kg × {tarifKg.tarif_vente} Ar/kg</span>
-                      <span>{(parseFloat(bagageForm.poids) || 0) * tarifKg.tarif_vente} Ar</span>
+                <div className="mt-3 bg-purple-50 rounded-lg p-3">
+                  <div className="space-y-1 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">Poids équivalent (pour quota):</span>
+                      <span className="font-bold text-purple-700">
+                        {getPoidsEquivalent(
+                          colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0,
+                          colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0
+                        ).toFixed(1)} kg
+                      </span>
                     </div>
-                  )}
-                  {bagageForm.useVolume && tarifM3 && (
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>Volume: {parseFloat(bagageForm.volume) || 0} m³ × {tarifM3.tarif_vente} Ar/m³</span>
-                      <span>{(parseFloat(bagageForm.volume) || 0) * tarifM3.tarif_vente} Ar</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">Montant estimé:</span>
+                      <span className="font-bold text-purple-700">{montantColis} Ar</span>
                     </div>
-                  )}
+                    {colisForm.usePoids && tarifKg && (
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>Poids: {parseFloat(colisForm.poids) || 0} kg × {tarifKg.tarif_vente} Ar/kg</span>
+                        <span>{(parseFloat(colisForm.poids) || 0) * tarifKg.tarif_vente} Ar</span>
+                      </div>
+                    )}
+                    {colisForm.useVolume && tarifM3 && (
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>Volume: {parseFloat(colisForm.volume) || 0} m³ × {tarifM3.tarif_vente} Ar/m³</span>
+                        <span>{(parseFloat(colisForm.volume) || 0) * tarifM3.tarif_vente} Ar</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
               )}
               {isPoidsDepasseQuotaColis() && (
                 <div className="mt-2 flex items-center gap-2 text-red-600 text-sm">
@@ -1380,21 +1442,21 @@ const getPoidsEquivalent = (poids: number, volume: number) => {
               onClick={handleSubmit}
               disabled={
                 isSubmitting || 
-                (ticketType === 'voyageur' && isTicketsFull) ||
+                (ticketType === 'voyageur' && (isTicketsFull || isAllClassesFull)) ||
                 (ticketType === 'bagage' && isBagagesFull) ||
-                (ticketType === 'voyageur_bagage' && (isTicketsFull || isBagagesFull)) ||
+                (ticketType === 'voyageur_bagage' && (isTicketsFull || isBagagesFull || isAllClassesFull)) ||
                 (ticketType === 'bagage' && isPoidsDepasseQuotaBagage()) ||
-                (ticketType === 'voyageur_bagage' && isPoidsDepasseQuotaBagage()) ||
-                (ticketType === 'colis' && isPoidsDepasseQuotaColis())
+                (ticketType === 'voyageur_bagage' && (isPoidsDepasseQuotaBagage() || isAllClassesFull)) ||
+                (ticketType === 'colis' && (isPoidsDepasseQuotaColis() || isBagagesFull))
               }
               className={`w-full py-3 rounded-lg font-medium flex items-center justify-center gap-2 shadow-lg transition-all duration-200 ${
                 isSubmitting || 
-                (ticketType === 'voyageur' && isTicketsFull) ||
+                (ticketType === 'voyageur' && (isTicketsFull || isAllClassesFull)) ||
                 (ticketType === 'bagage' && isBagagesFull) ||
-                (ticketType === 'voyageur_bagage' && (isTicketsFull || isBagagesFull)) ||
+                (ticketType === 'voyageur_bagage' && (isTicketsFull || isBagagesFull || isAllClassesFull)) ||
                 (ticketType === 'bagage' && isPoidsDepasseQuotaBagage()) ||
-                (ticketType === 'voyageur_bagage' && isPoidsDepasseQuotaBagage()) ||
-                (ticketType === 'colis' && isPoidsDepasseQuotaColis())
+                (ticketType === 'voyageur_bagage' && (isPoidsDepasseQuotaBagage() || isAllClassesFull)) ||
+                (ticketType === 'colis' && (isPoidsDepasseQuotaColis() || isBagagesFull))
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-linear-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white shadow-orange-500/30'
               }`}

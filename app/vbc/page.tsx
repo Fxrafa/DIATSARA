@@ -46,6 +46,8 @@ interface Voyage {
   places_max: number;
   poids_max: number;
   statut: string;
+  formation_voiture: number;
+  formation_voiture2: number;
   gare_depart_detail?: { code: string; gare: string };
   gare_arrivee_detail?: { code: string; gare: string };
 }
@@ -55,9 +57,11 @@ interface VoyageWithQuotas {
   quota_tickets: QuotaTicket[];
   quota_bagages: QuotaBagage[];
   total_tickets: number;
-  total_bagages: number; // En KG
+  total_bagages: number;
   tickets_vendus: number;
-  bagages_vendus: number; // En KG
+  bagages_vendus: number;
+  places_1ere: number;
+  places_2eme: number;
 }
 
 export default function VBCPage() {
@@ -210,7 +214,7 @@ export default function VBCPage() {
             </h2>
 
             <div className="space-y-4">
-              {voyages.map(({ voyage, quota_tickets, quota_bagages, total_tickets, total_bagages, tickets_vendus, bagages_vendus }) => (
+              {voyages.map(({ voyage, quota_tickets, quota_bagages, total_tickets, total_bagages, tickets_vendus, bagages_vendus, places_1ere, places_2eme }) => (
                 <div key={voyage.id} className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
                   <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-4">
@@ -276,11 +280,22 @@ export default function VBCPage() {
                                 {total_tickets - tickets_vendus}
                               </span>
                             </div>
+                            {/* Places par classe */}
+                            <div className="mt-2 border-t border-blue-200 pt-2">
+                              <div className="flex justify-between text-xs">
+                                <span className="text-gray-500">1ère classe</span>
+                                <span className="font-medium text-blue-700">{places_1ere} / {voyage.formation_voiture * 60}</span>
+                              </div>
+                              <div className="flex justify-between text-xs">
+                                <span className="text-gray-500">2ème classe</span>
+                                <span className="font-medium text-blue-700">{places_2eme} / {voyage.formation_voiture2 * 72}</span>
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
 
-                      {/* Quota Bagages - Affiché en tonnes */}
+                      {/* Quota Bagages */}
                       <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
                         <div className="flex items-center justify-between mb-3">
                           <h3 className="text-sm font-semibold text-orange-800 flex items-center gap-2">
