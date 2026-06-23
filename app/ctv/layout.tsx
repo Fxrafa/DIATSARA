@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, LogOut } from 'lucide-react';
+import { LayoutDashboard, LogOut, History } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -42,6 +42,11 @@ export default function CTVLayout({
       href: '/ctv',
       icon: <LayoutDashboard className="h-5 w-5" />,
     },
+    {
+      name: 'Historique',
+      href: '/ctv/historique',
+      icon: <History className="h-5 w-5" />,
+    },
   ];
 
   const handleLogout = async () => {
@@ -67,7 +72,7 @@ export default function CTVLayout({
 
           <nav className="space-y-1">
             {sidebarItems.map((item) => {
-              const isActive = pathname === item.href;
+              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               return (
                 <Link
                   key={item.href}

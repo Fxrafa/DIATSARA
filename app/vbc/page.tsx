@@ -273,7 +273,7 @@ export default function VBCPage() {
                                 <span className="font-medium text-blue-700">{q.quota}</span>
                               </div>
                             ))}
-                            <div className="border-t border-blue-200 pt-1 mt-1 flex justify-between text-sm font-medium">
+                            <div className="border-t border-blue-200 pt-1 mt-1 flex justify-between text-sm  text-gray-500">
                               <span>Total</span>
                               <span className="text-blue-700">{total_tickets}</span>
                             </div>
@@ -281,7 +281,7 @@ export default function VBCPage() {
                               <span>Vendus</span>
                               <span className="font-medium">{tickets_vendus}</span>
                             </div>
-                            <div className="flex justify-between text-sm font-medium">
+                            <div className="flex justify-between text-sm  text-gray-500">
                               <span>Restants</span>
                               <span className={`${total_tickets - tickets_vendus > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                 {total_tickets - tickets_vendus}
@@ -324,7 +324,7 @@ export default function VBCPage() {
                                 <span className="font-medium text-orange-700">{q.quota_tonnes} tonnes</span>
                               </div>
                             ))}
-                            <div className="border-t border-orange-200 pt-1 mt-1 flex justify-between text-sm font-medium">
+                            <div className="border-t border-orange-200 pt-1 mt-1 flex justify-between text-sm  text-gray-500">
                               <span>Total</span>
                               <span className="text-orange-700">{(total_bagages / 1000).toFixed(1)}T</span>
                             </div>
@@ -332,7 +332,7 @@ export default function VBCPage() {
                               <span>Vendus</span>
                               <span className="font-medium">{(bagages_vendus / 1000).toFixed(1)}T</span>
                             </div>
-                            <div className="flex justify-between text-sm font-medium">
+                            <div className="flex justify-between text-sm  text-gray-500">
                               <span>Restants</span>
                               <span className={`${total_bagages - bagages_vendus > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                 {((total_bagages - bagages_vendus) / 1000).toFixed(1)}T

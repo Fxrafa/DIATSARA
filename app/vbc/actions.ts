@@ -333,9 +333,11 @@ export async function getTarifBagageColis(unite: string) {
     .single();
 
   if (error) {
+    console.error('Erreur getTarifBagageColis:', error);
     return { error: 'Tarif non trouvé' };
   }
 
+  console.log('Tarif récupéré pour', unite, ':', tarif); // Debug
   return { tarif };
 }
 
