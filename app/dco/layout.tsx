@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -51,6 +50,11 @@ export default function DCOLayout({
     {
       name: 'Historique voyages',
       href: '/dco/historique',
+      icon: <Calendar className="h-5 w-5" />,
+    },
+    {
+      name: 'Historique recette',
+      href: '/dco/historique-recette',
       icon: <History className="h-5 w-5" />,
     },
   ];
@@ -78,7 +82,7 @@ export default function DCOLayout({
 
           <nav className="space-y-1">
             {sidebarItems.map((item) => {
-              const isActive = pathname === item.href;
+              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               return (
                 <Link
                   key={item.href}

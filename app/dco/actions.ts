@@ -320,3 +320,152 @@ export async function getVoyagesActifsWithQuotas() {
 
   return { voyages: voyagesWithQuotas };
 }
+
+// NOUVELLES FONCTIONS POUR L'HISTORIQUE RECETTE
+export async function getVoyagesHistoriqueRecette() {
+  const { data: voyages, error } = await supabaseAdmin
+    .from('voyages')
+    .select(`
+      *,
+      gare_depart_detail:gare_depart(code, gare),
+      gare_arrivee_detail:gare_arrivee(code, gare)
+    `)
+    .order('date_voyage', { ascending: false })
+    .limit(5);
+
+  if (error) {
+    return { error: 'Erreur lors du chargement des voyages' };
+  }
+
+  return { voyages };
+}
+
+export async function getVoyageDetailsRecette(voyageId: string) {
+  try {
+    // 1. Récupérer les détails du voyage
+    const { data: voyageData, error: voyageError } = await supabaseAdmin
+      .from('voyages')
+      .select(`
+        *,
+        gare_depart_detail:gare_depart(code, gare),
+        gare_arrivee_detail:gare_arrivee(code, gare)
+      `)
+      .eq('id', voyageId)
+      .single();
+
+    if (voyageError) {
+      return { error: 'Voyage non trouvé' };
+    }
+
+    // 2. Récupérer les tickets voyageurs vendus par gare
+    const { data: ticketsVendus, error: ticketsError } = await supabaseAdmin
+      .from('ticket_voyageur')
+      .select('gare_ref, part_madarail')
+      .eq('voyage_id', voyageId);
+
+    if (ticketsError) {
+      return { error: 'Erreur lors du chargement des tickets voyageurs' };
+    }
+
+    // 3. Récupérer les tickets bagages vendus par gare
+    const { data: bagagesVendus, error: bagagesError } = await supabaseAdmin
+      .from('ticket_bagage')
+      .select('gare_ref, poids, part_madarail')
+      .eq('voyage_id', voyageId);
+
+    if (bagagesError) {
+      return { error: 'Erreur lors du chargement des tickets bagages' };
+    }
+
+    // 4. Récupérer les tickets colis vendus par gare
+    const { data: colisVendus, error: colisError } = await supabaseAdmin
+      .from('ticket_colis')
+      .select('gare_ref, poids, part_madarail')
+      .eq('voyage_id', voyageId);
+
+    if (colisError) {
+      return { error: 'Erreur lors du chargement des tickets colis' };
+    }
+
+    // 5. Récupérer toutes les gares
+    const { data: allGares, error: garesError } = await supabaseAdmin
+      .from('gare')
+      .select('num, code, gare')
+      .order('num');
+
+    if (garesError) {
+      return { error: 'Erreur lors du chargement des gares' };
+    }
+
+    // 6. Construire les ventes par gare
+    const ventesParGare = allGares.map(gare => {
+      const tickets = ticketsVendus?.filter(t => t.gare_ref === gare.num) || [];
+      const bagages = bagagesVendus?.filter(b => b.gare_ref === gare.num) || [];
+      const colis = colisVendus?.filter(c => c.gare_ref === gare.num) || [];
+
+      const ticketsVendusCount = tickets.length;
+      const recetteTickets = tickets.reduce((sum, t) => sum + (t.part_madarail || 0), 0);
+      
+      const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0), 0);
+      const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0), 0);
+      const poidsTotal = poidsBagages + poidsColis;
+      
+      const recetteBagages = bagages.reduce((sum, b) => sum + (b.part_madarail || 0), 0);
+      const recetteColis = colis.reduce((sum, c) => sum + (c.part_madarail || 0), 0);
+      const recetteBagagesTotal = recetteBagages + recetteColis;
+
+      return {
+        gare_num: gare.num,
+        gare_code: gare.code,
+        gare_name: gare.gare,
+        tickets_vendus: ticketsVendusCount,
+        recette_tickets: recetteTickets,
+        poids_vendu: poidsTotal,
+        recette_bagages: recetteBagagesTotal,
+        recette_totale: recetteTickets + recetteBagagesTotal,
+      };
+    });
+
+    // Filtrer les gares qui ont des ventes
+    const garesAvecVentes = ventesParGare.filter(v => 
+      v.tickets_vendus > 0 || v.poids_vendu > 0
+    );
+
+    // Si aucune vente, retourner un tableau vide
+    if (garesAvecVentes.length === 0) {
+      return {
+        detail: {
+          ...voyageData,
+          ventes_par_gare: [],
+          total_tickets_vendus: 0,
+          total_recette_tickets: 0,
+          total_poids_vendu: 0,
+          total_recette_bagages: 0,
+          total_recette: 0,
+        }
+      };
+    }
+
+    // Calculer les totaux
+    const totalTicketsVendus = garesAvecVentes.reduce((sum, v) => sum + v.tickets_vendus, 0);
+    const totalRecetteTickets = garesAvecVentes.reduce((sum, v) => sum + v.recette_tickets, 0);
+    const totalPoidsVendu = garesAvecVentes.reduce((sum, v) => sum + v.poids_vendu, 0);
+    const totalRecetteBagages = garesAvecVentes.reduce((sum, v) => sum + v.recette_bagages, 0);
+    const totalRecette = garesAvecVentes.reduce((sum, v) => sum + v.recette_totale, 0);
+
+    const detail = {
+      ...voyageData,
+      ventes_par_gare: garesAvecVentes,
+      total_tickets_vendus: totalTicketsVendus,
+      total_recette_tickets: totalRecetteTickets,
+      total_poids_vendu: totalPoidsVendu,
+      total_recette_bagages: totalRecetteBagages,
+      total_recette: totalRecette,
+    };
+
+    return { detail };
+  } catch (error) {
+    console.error('Erreur:', error);
+    return { error: 'Erreur lors du chargement des détails' };
+  }
+}
