@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
@@ -6,10 +7,10 @@ import { Fragment, useEffect, useState } from 'react';
 import { 
   History, Calendar, Train, Users, Package, 
   Ticket, Loader2, AlertCircle, Eye,
-  ArrowLeft, ChevronDown, ChevronUp
+  ArrowLeft, ChevronDown, ChevronUp, Search, X
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { getVoyagesHistoriqueRecette, getVoyageDetailsRecette } from '../actions';
+import { getVoyagesHistoriqueRecetteFiltre, getVoyageDetailsRecette } from '../actions';
 
 interface Voyage {
   id: string;
@@ -56,12 +57,32 @@ export default function DCOHistoriqueRecettePage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  const fetchVoyages = async () => {
+  // États pour les filtres
+  const [dateDebut, setDateDebut] = useState<string>('');
+  const [dateFin, setDateFin] = useState<string>('');
+  const [isFiltering, setIsFiltering] = useState(false);
+
+  // Initialiser avec le mois actuel
+  useEffect(() => {
+    const now = new Date();
+    const premierJour = new Date(now.getFullYear(), now.getMonth(), 1);
+    const dernierJour = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    
+    setDateDebut(premierJour.toISOString().split('T')[0]);
+    setDateFin(dernierJour.toISOString().split('T')[0]);
+    
+    fetchVoyages(
+      premierJour.toISOString().split('T')[0],
+      dernierJour.toISOString().split('T')[0]
+    );
+  }, []);
+
+  const fetchVoyages = async (debut?: string, fin?: string) => {
     setLoading(true);
     setError(null);
 
     try {
-      const result = await getVoyagesHistoriqueRecette();
+      const result = await getVoyagesHistoriqueRecetteFiltre(debut, fin);
       
       if (result.error) {
         setError(result.error);
@@ -76,9 +97,34 @@ export default function DCOHistoriqueRecettePage() {
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchVoyages();
-  }, []);
+  const handleFilter = () => {
+    if (dateDebut && dateFin) {
+      if (dateDebut > dateFin) {
+        setError('La date de début doit être antérieure à la date de fin');
+        return;
+      }
+      setIsFiltering(true);
+      fetchVoyages(dateDebut, dateFin);
+      setError(null);
+    } else {
+      setError('Veuillez sélectionner une plage de dates');
+    }
+  };
+
+  const handleReset = () => {
+    const now = new Date();
+    const premierJour = new Date(now.getFullYear(), now.getMonth(), 1);
+    const dernierJour = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    
+    setDateDebut(premierJour.toISOString().split('T')[0]);
+    setDateFin(dernierJour.toISOString().split('T')[0]);
+    setIsFiltering(false);
+    fetchVoyages(
+      premierJour.toISOString().split('T')[0],
+      dernierJour.toISOString().split('T')[0]
+    );
+    setError(null);
+  };
 
   const fetchVoyageDetails = async (voyageId: string) => {
     setLoadingDetail(true);
@@ -130,6 +176,10 @@ export default function DCOHistoriqueRecettePage() {
     return <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">Terminé</span>;
   };
 
+  const hasData = (gare: VenteParGare) => {
+    return gare.tickets_vendus > 0 || gare.poids_vendu > 0 || gare.recette_totale > 0;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -148,7 +198,7 @@ export default function DCOHistoriqueRecettePage() {
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
           <p className="mt-4 text-red-600">{error}</p>
           <button
-            onClick={() => fetchVoyages()}
+            onClick={() => handleReset()}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
           >
             Réessayer
@@ -165,7 +215,7 @@ export default function DCOHistoriqueRecettePage() {
           <button
             onClick={() => {
               setSelectedVoyage(null);
-              fetchVoyages();
+              handleReset();
             }}
             className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
           >
@@ -230,11 +280,6 @@ export default function DCOHistoriqueRecettePage() {
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
           </div>
-        ) : selectedVoyage.ventes_par_gare.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-            <Ticket className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">Aucune vente enregistrée pour ce voyage</p>
-          </div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
@@ -253,46 +298,63 @@ export default function DCOHistoriqueRecettePage() {
                 <tbody className="divide-y divide-gray-200">
                   {selectedVoyage.ventes_par_gare.map((gare) => {
                     const isExpanded = expandedRows.has(gare.gare_code);
+                    const hasDataValue = hasData(gare);
                     
                     return (
                       <Fragment key={gare.gare_num}>
-                        <tr className="hover:bg-gray-50 transition">
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                            {gare.gare_code} - {gare.gare_name}
+                        <tr className={`hover:bg-gray-50 transition ${!hasDataValue ? 'text-gray-400' : ''}`}>
+                          <td className="px-4 py-3 text-sm font-medium">
+                            <span className={hasDataValue ? 'text-gray-900' : 'text-gray-400'}>
+                              {gare.gare_code} - {gare.gare_name}
+                            </span>
+                            {!hasDataValue && (
+                              <span className="ml-2 text-xs text-gray-400">(aucune vente)</span>
+                            )}
                           </td>
-                          <td className="px-4 py-3 text-center text-sm text-gray-900 font-medium">
-                            {gare.tickets_vendus}
+                          <td className="px-4 py-3 text-center text-sm">
+                            <span className={hasDataValue ? 'text-gray-900 font-medium' : 'text-gray-400'}>
+                              {gare.tickets_vendus}
+                            </span>
                           </td>
-                          <td className="px-4 py-3 text-center text-sm text-green-600 font-medium">
-                            {formatPrice(gare.recette_tickets)}
+                          <td className="px-4 py-3 text-center text-sm">
+                            <span className={hasDataValue ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                              {hasDataValue ? formatPrice(gare.recette_tickets) : '0 Ar'}
+                            </span>
                           </td>
-                          <td className="px-4 py-3 text-center text-sm text-orange-600 font-medium">
-                            {gare.poids_vendu.toFixed(1)} kg
+                          <td className="px-4 py-3 text-center text-sm">
+                            <span className={hasDataValue ? 'text-orange-600 font-medium' : 'text-gray-400'}>
+                              {gare.poids_vendu.toFixed(1)} kg
+                            </span>
                           </td>
-                          <td className="px-4 py-3 text-center text-sm text-purple-600 font-medium">
-                            {formatPrice(gare.recette_bagages)}
+                          <td className="px-4 py-3 text-center text-sm">
+                            <span className={hasDataValue ? 'text-purple-600 font-medium' : 'text-gray-400'}>
+                              {hasDataValue ? formatPrice(gare.recette_bagages) : '0 Ar'}
+                            </span>
                           </td>
-                          <td className="px-4 py-3 text-center text-sm font-bold text-yellow-600">
-                            {formatPrice(gare.recette_totale)}
+                          <td className="px-4 py-3 text-center text-sm">
+                            <span className={hasDataValue ? 'font-bold text-yellow-600' : 'text-gray-400'}>
+                              {hasDataValue ? formatPrice(gare.recette_totale) : '0 Ar'}
+                            </span>
                           </td>
                           <td className="px-4 py-3 text-center">
-                            <button
-                              onClick={() => toggleRow(gare.gare_code)}
-                              className="p-1 hover:bg-gray-100 rounded transition"
-                            >
-                              {isExpanded ? (
-                                <ChevronUp className="h-4 w-4 text-gray-500" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4 text-gray-500" />
-                              )}
-                            </button>
+                            {hasDataValue && (
+                              <button
+                                onClick={() => toggleRow(gare.gare_code)}
+                                className="p-1 hover:bg-gray-100 rounded transition"
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4 text-gray-500" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-gray-500" />
+                                )}
+                              </button>
+                            )}
                           </td>
                         </tr>
-                        {isExpanded && (
+                        {isExpanded && hasDataValue && (
                           <tr className="bg-gray-50">
                             <td colSpan={7} className="px-4 py-3">
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {/* Détails Tickets */}
                                 <div className="bg-white rounded-lg p-3 border border-gray-200">
                                   <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
                                     <Ticket className="h-3 w-3" />
@@ -310,7 +372,6 @@ export default function DCOHistoriqueRecettePage() {
                                   </div>
                                 </div>
 
-                                {/* Détails Bagages + Colis */}
                                 <div className="bg-white rounded-lg p-3 border border-gray-200">
                                   <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
                                     <Package className="h-3 w-3" />
@@ -328,7 +389,6 @@ export default function DCOHistoriqueRecettePage() {
                                   </div>
                                 </div>
 
-                                {/* Résumé */}
                                 <div className="bg-gray-100 rounded-lg p-3 border border-gray-200">
                                   <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Résumé</h4>
                                   <div className="space-y-1 text-sm">
@@ -354,7 +414,6 @@ export default function DCOHistoriqueRecettePage() {
                     );
                   })}
                 </tbody>
-                {/* Total général */}
                 <tfoot className="bg-gray-100 border-t-2 border-gray-300">
                   <tr>
                     <td className="px-4 py-3 text-sm font-bold text-gray-900">TOTAL</td>
@@ -384,7 +443,7 @@ export default function DCOHistoriqueRecettePage() {
     );
   }
 
-  // Liste des voyages
+  // Liste des voyages avec filtre
   return (
     <div>
       <div className="mb-8">
@@ -392,13 +451,64 @@ export default function DCOHistoriqueRecettePage() {
           <History className="h-8 w-8 text-blue-600" />
           Historique des recettes
         </h1>
-        <p className="text-gray-600 mt-1">Consultez les 5 derniers voyages et leurs recettes par gare</p>
+        <p className="text-gray-600 mt-1">Consultez les voyages terminés et leurs recettes par gare</p>
       </div>
+
+      {/* Filtres */}
+      <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date début</label>
+            <input
+              type="date"
+              value={dateDebut}
+              onChange={(e) => setDateDebut(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date fin</label>
+            <input
+              type="date"
+              value={dateFin}
+              onChange={(e) => setDateFin(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+            />
+          </div>
+          <button
+            onClick={handleFilter}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition flex items-center gap-2"
+          >
+            <Search className="h-4 w-4" />
+            Filtrer
+          </button>
+          <button
+            onClick={handleReset}
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition flex items-center gap-2"
+          >
+            <X className="h-4 w-4" />
+            Réinitialiser
+          </button>
+          {isFiltering && (
+            <span className="text-sm text-blue-600 font-medium">
+              {voyages.length} voyage(s) trouvé(s)
+            </span>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {voyages.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-xl shadow-sm">
           <Calendar className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-500">Aucun voyage trouvé</p>
+          <p className="text-gray-500">Aucun voyage terminé trouvé pour cette période</p>
+          <p className="text-sm text-gray-400 mt-1">Modifiez les filtres pour voir plus de voyages</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
