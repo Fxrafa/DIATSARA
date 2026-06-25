@@ -196,11 +196,15 @@ export default function VentePage() {
     const departIndex = gareCodes.indexOf(voyage.gare_depart_detail?.code || '');
     const arriveeIndex = gareCodes.indexOf(voyage.gare_arrivee_detail?.code || '');
 
-    // Si la gare du VBC n'est pas entre le départ et l'arrivée, il ne peut pas vendre
+    // Si la gare du VBC n'est pas sur le trajet, il ne peut pas vendre
+    if (currentIndex < Math.min(departIndex, arriveeIndex) || currentIndex > Math.max(departIndex, arriveeIndex)) {
+      return [];
+    }
+
     // Sens impair (2131): direction MGA -> MNG (Nord)
     if (voyage.sens === '2131') {
-      // Le VBC doit être entre départ et arrivée (inclus)
-      if (currentIndex < departIndex || currentIndex > arriveeIndex) {
+      // Le VBC doit être avant l'arrivée
+      if (currentIndex >= arriveeIndex) {
         return [];
       }
       // Gares après la gare du VBC jusqu'à l'arrivée (exclure la gare actuelle)
@@ -208,13 +212,13 @@ export default function VentePage() {
     } 
     // Sens pair (2132): direction MNG -> MGA (Sud)
     else {
-      // Le VBC doit être entre arrivée et départ (inclus)
-      if (currentIndex < arriveeIndex || currentIndex > departIndex) {
+      // Pour le sens pair (Sud), le VBC vend vers les gares avant lui (vers le Sud)
+      // Le VBC doit être après le départ
+      if (currentIndex <= departIndex) {
         return [];
       }
-      // Gares après la gare du VBC jusqu'au départ (exclure la gare actuelle)
-      // Pour le sens pair, le VBC est avant le départ
-      return allGares.slice(currentIndex + 1, departIndex + 1);
+      // Gares entre le départ et la gare du VBC (exclure la gare actuelle)
+      return allGares.slice(departIndex, currentIndex);
     }
   };
 
@@ -650,7 +654,6 @@ export default function VentePage() {
         const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
         const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
         
-        // ✅ Calcul du montant avec les tarifs réels (séparés)
         let montantBag = 0;
         let partMadarailBag = 0;
 
@@ -663,7 +666,6 @@ export default function VentePage() {
           partMadarailBag += volume * tarifM3.part_madarail;
         }
 
-        // Poids équivalent pour le quota
         const poidsEquivalent = getPoidsEquivalent(poids, volume);
 
         const numTicket = generateTicketNumber('B');
@@ -677,7 +679,7 @@ export default function VentePage() {
             poids: poids,
             volume: volume,
             poids_volume: `${poids}kg / ${volume}m3`,
-            montant: montantBag, // ✅ Prix avec tarifs réels
+            montant: montantBag,
             part_madarail: partMadarailBag,
             voyage_id: voyageIdStr,
             gare_ref: gareRef,
@@ -692,6 +694,11 @@ export default function VentePage() {
 
         setNumTicketSequential(numTicketSequential + 1);
         setSuccess(`Ticket bagage ${numTicket} créé avec succès !`);
+
+        setQuotas(prev => ({
+          ...prev,
+          bagages_vendus: prev.bagages_vendus + poidsEquivalent,
+        }));
       }
 
       // Traitement du ticket colis
@@ -699,7 +706,6 @@ export default function VentePage() {
         const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
         const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
         
-        // ✅ Calcul du montant avec les tarifs réels (séparés)
         let montantCol = 0;
         let partMadarailCol = 0;
 
@@ -712,7 +718,6 @@ export default function VentePage() {
           partMadarailCol += volume * tarifM3.part_madarail;
         }
 
-        // Poids équivalent pour le quota
         const poidsEquivalent = getPoidsEquivalent(poids, volume);
 
         const numTicket = generateTicketNumber('C');
@@ -726,7 +731,7 @@ export default function VentePage() {
             poids: poids,
             volume: volume,
             poids_volume: `${poids}kg / ${volume}m3`,
-            montant: montantCol, // ✅ Prix avec tarifs réels
+            montant: montantCol,
             part_madarail: partMadarailCol,
             nom_expediteur: colisForm.nom_expediteur,
             num_tel_expediteur: colisForm.num_tel_expediteur,
@@ -745,6 +750,11 @@ export default function VentePage() {
 
         setNumTicketSequential(numTicketSequential + 1);
         setSuccess(`Ticket colis ${numTicket} créé avec succès !`);
+
+        setQuotas(prev => ({
+          ...prev,
+          bagages_vendus: prev.bagages_vendus + poidsEquivalent,
+        }));
       }
 
       // Réinitialiser les formulaires
@@ -756,7 +766,6 @@ export default function VentePage() {
         nom_destinataire: '', num_tel_destinataire: '03'
       });
 
-      // Mettre à jour les quotas
       if (ticketType === 'voyageur' || ticketType === 'voyageur_bagage') {
         setQuotas(prev => ({
           ...prev,
@@ -773,24 +782,6 @@ export default function VentePage() {
             places_2eme: prev.places_2eme - 1,
           }));
         }
-      }
-      
-      // Mise à jour du quota bagage avec le poids équivalent
-      if (ticketType === 'bagage' || ticketType === 'voyageur_bagage' || ticketType === 'colis') {
-        let poidsEquivalent = 0;
-        if (ticketType === 'bagage' || ticketType === 'voyageur_bagage') {
-          const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
-          const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
-          poidsEquivalent = getPoidsEquivalent(poids, volume);
-        } else if (ticketType === 'colis') {
-          const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
-          const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
-          poidsEquivalent = getPoidsEquivalent(poids, volume);
-        }
-        setQuotas(prev => ({
-          ...prev,
-          bagages_vendus: prev.bagages_vendus + poidsEquivalent,
-        }));
       }
 
     } catch (err) {

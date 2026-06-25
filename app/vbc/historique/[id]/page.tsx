@@ -12,6 +12,7 @@ import {
   Users, Weight, Clock, CheckCircle, History,
   TrendingUp
 } from 'lucide-react';
+import { getTicketsVendus } from '@/app/vbc/actions';
 
 interface Voyage {
   id: string;
@@ -72,7 +73,6 @@ interface Stats {
   total_montant: number;
   total_places_vendues: number;
   total_poids_vendu: number;
-  // Nouveaux champs
   montant_1ere: number;
   montant_2eme: number;
   montant_voyageurs: number;
@@ -151,58 +151,37 @@ export default function HistoriqueVentePage() {
           return;
         }
 
-        // Récupérer les tickets voyageurs
-        const { data: ticketsV } = await supabase
-          .from('ticket_voyageur')
-          .select('*')
-          .eq('voyage_id', voyageId)
-          .eq('gare_ref', profile.gare_ref)
-          .order('created_at', { ascending: false });
+        // ✅ Utiliser la Server Action pour récupérer les tickets
+        const result = await getTicketsVendus(voyageId, profile.gare_ref);
 
-        if (ticketsV) {
-          setTicketsVoyageurs(ticketsV);
+        if (result.voyageurs) {
+          setTicketsVoyageurs(result.voyageurs);
         }
-
-        // Récupérer les tickets bagages
-        const { data: ticketsB } = await supabase
-          .from('ticket_bagage')
-          .select('*')
-          .eq('voyage_id', voyageId)
-          .eq('gare_ref', profile.gare_ref)
-          .order('created_at', { ascending: false });
-
-        if (ticketsB) {
-          setTicketsBagages(ticketsB);
+        if (result.bagages) {
+          setTicketsBagages(result.bagages);
         }
-
-        // Récupérer les tickets colis
-        const { data: ticketsC } = await supabase
-          .from('ticket_colis')
-          .select('*')
-          .eq('voyage_id', voyageId)
-          .eq('gare_ref', profile.gare_ref)
-          .order('created_at', { ascending: false });
-
-        if (ticketsC) {
-          setTicketsColis(ticketsC);
+        if (result.colis) {
+          setTicketsColis(result.colis);
         }
 
         // Calculer les statistiques
-        const totalVoyageurs = ticketsV?.length || 0;
-        const totalBagages = ticketsB?.length || 0;
-        const totalColis = ticketsC?.length || 0;
+        const ticketsV = result.voyageurs || [];
+        const ticketsB = result.bagages || [];
+        const ticketsC = result.colis || [];
+
+        const totalVoyageurs = ticketsV.length;
+        const totalBagages = ticketsB.length;
+        const totalColis = ticketsC.length;
         
-        // Montants par type
-        const montantVoyageurs = ticketsV?.reduce((sum, t) => sum + t.montant, 0) || 0;
-        const montantBagages = ticketsB?.reduce((sum, t) => sum + t.montant, 0) || 0;
-        const montantColis = ticketsC?.reduce((sum, t) => sum + t.montant, 0) || 0;
+        const montantVoyageurs = ticketsV.reduce((sum, t) => sum + t.montant, 0);
+        const montantBagages = ticketsB.reduce((sum, t) => sum + t.montant, 0);
+        const montantColis = ticketsC.reduce((sum, t) => sum + t.montant, 0);
         
-        // Montants par classe pour les voyageurs
-        const montant1ere = ticketsV?.filter(t => t.classe === '1ere').reduce((sum, t) => sum + t.montant, 0) || 0;
-        const montant2eme = ticketsV?.filter(t => t.classe === '2eme').reduce((sum, t) => sum + t.montant, 0) || 0;
+        const montant1ere = ticketsV.filter(t => t.classe === '1ere').reduce((sum, t) => sum + t.montant, 0);
+        const montant2eme = ticketsV.filter(t => t.classe === '2eme').reduce((sum, t) => sum + t.montant, 0);
         
-        const placesVendues = ticketsV?.length || 0;
-        const poidsVendu = ticketsB?.reduce((sum, t) => sum + (t.poids || 0), 0) || 0;
+        const placesVendues = ticketsV.length;
+        const poidsVendu = ticketsB.reduce((sum, t) => sum + (t.poids || 0), 0);
 
         setStats({
           total_voyageurs: totalVoyageurs,
@@ -478,7 +457,6 @@ export default function HistoriqueVentePage() {
                   </div>
                 ) : (
                   <>
-                    {/* Sous-total pour l'onglet voyageurs */}
                     <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200 flex justify-between items-center">
                       <span className="text-sm font-medium text-blue-800">Total des tickets voyageurs:</span>
                       <div className="space-x-4 text-sm">
@@ -502,7 +480,7 @@ export default function HistoriqueVentePage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {ticketsVoyageurs.map(ticket => (
+                          {ticketsVoyageurs.map((ticket) => (
                             <tr key={ticket.id} className="hover:bg-gray-50 transition">
                               <td className="px-4 py-2 text-sm font-medium text-gray-900">{ticket.num_ticket}</td>
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.nom_voyageur}</td>
@@ -532,7 +510,6 @@ export default function HistoriqueVentePage() {
                   </div>
                 ) : (
                   <>
-                    {/* Sous-total pour l'onglet bagages */}
                     <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200 flex justify-between items-center">
                       <span className="text-sm font-medium text-green-800">Total des tickets bagages:</span>
                       <span className="font-bold text-green-700">{formatPrice(stats.montant_bagages)}</span>
@@ -552,7 +529,7 @@ export default function HistoriqueVentePage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {ticketsBagages.map(ticket => (
+                          {ticketsBagages.map((ticket) => (
                             <tr key={ticket.id} className="hover:bg-gray-50 transition">
                               <td className="px-4 py-2 text-sm font-medium text-gray-900">{ticket.num_ticket}</td>
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.nature}</td>
@@ -582,7 +559,6 @@ export default function HistoriqueVentePage() {
                   </div>
                 ) : (
                   <>
-                    {/* Sous-total pour l'onglet colis */}
                     <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200 flex justify-between items-center">
                       <span className="text-sm font-medium text-purple-800">Total des tickets colis:</span>
                       <span className="font-bold text-purple-700">{formatPrice(stats.montant_colis)}</span>
@@ -603,7 +579,7 @@ export default function HistoriqueVentePage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {ticketsColis.map(ticket => (
+                          {ticketsColis.map((ticket) => (
                             <tr key={ticket.id} className="hover:bg-gray-50 transition">
                               <td className="px-4 py-2 text-sm font-medium text-gray-900">{ticket.num_ticket}</td>
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.nature}</td>

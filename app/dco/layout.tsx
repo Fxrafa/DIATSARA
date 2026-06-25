@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { Calendar, History, LayoutDashboard, LogOut, PlusCircle } from 'lucide-react';
+import { Calendar, History, LayoutDashboard, LogOut, PlusCircle, Activity } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -56,6 +56,11 @@ export default function DCOLayout({
       name: 'Historique recette',
       href: '/dco/historique-recette',
       icon: <History className="h-5 w-5" />,
+    },
+    {
+      name: 'Suivi en temps réel',
+      href: '/dco/suivi-temps-reel',
+      icon: <Activity className="h-5 w-5" />,
     },
   ];
 

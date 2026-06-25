@@ -1,55 +1,281 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 'use server';
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { revalidatePath } from 'next/cache';
 
-interface QuotaTicket {
-  gare_num: number;
-  quota: number;
-  gare_detail?: { code: string; gare: string };
+interface ActionResponse {
+  error?: string;
+  success?: boolean;
 }
 
-interface QuotaBagage {
-  commune_tutelle: string;
-  quota_tonnes: number;
+// ==================== FONCTIONS POUR LE CTV ====================
+
+// Récupérer les données du CTV (voyages actifs avec quotas globaux)
+export async function getVoyagesCTV() {
+  const { data: voyages, error } = await supabaseAdmin
+    .from('voyages')
+    .select(`
+      *,
+      gare_depart_detail:gare_depart(code, gare),
+      gare_arrivee_detail:gare_arrivee(code, gare)
+    `)
+    .eq('statut', 'actif')
+    .order('date_voyage', { ascending: true });
+
+  if (error) {
+    return { error: 'Erreur lors du chargement des voyages' };
+  }
+
+  return { voyages };
 }
 
-interface VenteParGare {
-  gare_num: number;
-  gare_code: string;
-  gare_name: string;
-  tickets_vendus: number;
-  part_madarail_total: number;
-  poids_vendu: number;
-  part_madarail_bagage_total: number;
+// Récupérer les détails d'un voyage pour le CTV (avec quotas globaux)
+export async function getVoyageDetailsCTV(voyageId: string) {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: 'Non authentifié' };
+  }
+
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('gare_ref')
+    .eq('id', user.id)
+    .single();
+
+  const { data: voyage, error } = await supabaseAdmin
+    .from('voyages')
+    .select(`
+      *,
+      gare_depart_detail:gare_depart(code, gare),
+      gare_arrivee_detail:gare_arrivee(code, gare)
+    `)
+    .eq('id', voyageId)
+    .single();
+
+  if (error) {
+    return { error: 'Voyage non trouvé' };
+  }
+
+  let quotaTicketsTotal = 0;
+  let quotaBagagesTotal = 0;
+  let ticketsVendus = 0;
+  let bagagesVendus = 0;
+
+  if (profile?.gare_ref) {
+    // ✅ Quotas tickets GLOBAUX (sans voyage_id)
+    const { data: tickets } = await supabaseAdmin
+      .from('quota_tickets')
+      .select('quota')
+      .eq('gare_num', profile.gare_ref);
+
+    if (tickets && tickets.length > 0) {
+      quotaTicketsTotal = tickets[0].quota;
+    }
+
+    const { data: vendus } = await supabaseAdmin
+      .from('ticket_voyageur')
+      .select('*')
+      .eq('voyage_id', voyageId)
+      .eq('gare_ref', profile.gare_ref);
+
+    ticketsVendus = vendus?.length || 0;
+
+    const { data: gareData } = await supabaseAdmin
+      .from('gare')
+      .select('commune_tutelle')
+      .eq('num', profile.gare_ref)
+      .single();
+
+    if (gareData) {
+      // ✅ Quotas bagages GLOBAUX (sans voyage_id)
+      const { data: bagages } = await supabaseAdmin
+        .from('quota_bagages')
+        .select('quota_tonnes')
+        .eq('commune_tutelle', gareData.commune_tutelle);
+
+      if (bagages && bagages.length > 0) {
+        quotaBagagesTotal = bagages[0].quota_tonnes * 1000;
+      }
+
+      const { data: bagagesVendusData } = await supabaseAdmin
+        .from('ticket_bagage')
+        .select('poids')
+        .eq('voyage_id', voyageId)
+        .eq('gare_ref', profile.gare_ref);
+
+      bagagesVendus = bagagesVendusData?.reduce((sum, b) => sum + (b.poids || 0), 0) || 0;
+    }
+  }
+
+  return { 
+    voyage,
+    quotas: {
+      tickets_max: quotaTicketsTotal,
+      tickets_vendus: ticketsVendus,
+      bagages_max: quotaBagagesTotal,
+      bagages_vendus: bagagesVendus,
+    }
+  };
 }
 
-interface VoyageDetail {
-  id: string;
-  date_voyage: string;
-  sens: string;
-  gare_depart: number;
-  gare_arrivee: number;
-  places_max: number;
-  poids_max: number;
-  statut: string;
-  formation_voiture: number;
-  formation_voiture2: number;
-  formation_wagon: number;
-  gare_depart_detail?: { code: string; gare: string };
-  gare_arrivee_detail?: { code: string; gare: string };
-  quota_tickets: QuotaTicket[];
-  quota_bagages: QuotaBagage[];
-  ventes_par_gare: VenteParGare[];
-  total_tickets_vendus: number;
-  total_part_madarail: number;
-  total_poids_vendu: number;
-  total_part_madarail_bagage: number;
+// ✅ Récupérer les quotas tickets GLOBAUX (sans voyage_id)
+export async function getQuotaTickets() {
+  const { data: quotas, error } = await supabaseAdmin
+    .from('quota_tickets')
+    .select('*')
+    .order('gare_num');
+
+  if (error) {
+    return { error: 'Erreur lors du chargement des quotas' };
+  }
+
+  return { quotas };
 }
 
-export async function getVoyagesHistorique() {
+// ✅ Récupérer les quotas bagages GLOBAUX (sans voyage_id)
+export async function getQuotaBagages() {
+  const { data: quotas, error } = await supabaseAdmin
+    .from('quota_bagages')
+    .select('*')
+    .order('commune_tutelle');
+
+  if (error) {
+    return { error: 'Erreur lors du chargement des quotas' };
+  }
+
+  return { quotas };
+}
+
+// ✅ Sauvegarder les quotas tickets GLOBAUX (sans voyage_id)
+export async function saveQuotaTickets(
+  quotas: { gare_num: number; quota: number }[]
+): Promise<ActionResponse> {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: 'Non authentifié' };
+  }
+
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role !== 'CTV') {
+    return { error: 'Accès non autorisé' };
+  }
+
+  for (const q of quotas) {
+    await supabaseAdmin
+      .from('quota_tickets')
+      .upsert({
+        gare_num: q.gare_num,
+        quota: q.quota,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'gare_num'
+      });
+  }
+
+  revalidatePath('/ctv/quotas');
+  return { success: true };
+}
+
+// ✅ Sauvegarder les quotas bagages GLOBAUX (sans voyage_id)
+export async function saveQuotaBagages(
+  quotas: { commune_tutelle: string; quota_tonnes: number }[]
+): Promise<ActionResponse> {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: 'Non authentifié' };
+  }
+
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role !== 'CTV') {
+    return { error: 'Accès non autorisé' };
+  }
+
+  for (const q of quotas) {
+    await supabaseAdmin
+      .from('quota_bagages')
+      .upsert({
+        commune_tutelle: q.commune_tutelle,
+        quota_tonnes: q.quota_tonnes,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'commune_tutelle'
+      });
+  }
+
+  revalidatePath('/ctv/quotas');
+  return { success: true };
+}
+
+// ==================== FONCTIONS POUR L'HISTORIQUE CTV ====================
+
+// Récupérer l'historique des voyages pour le CTV
+export async function getVoyagesHistoriqueCTV() {
   const { data: voyages, error } = await supabaseAdmin
     .from('voyages')
     .select(`
@@ -67,9 +293,12 @@ export async function getVoyagesHistorique() {
   return { voyages };
 }
 
-export async function getVoyageDetailsCTV(voyageId: string) {
+// ALIAS pour compatibilité avec l'ancien nom
+export const getVoyagesHistorique = getVoyagesHistoriqueCTV;
+
+// Récupérer les détails d'un voyage pour l'historique CTV
+export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
   try {
-    // 1. Récupérer les détails du voyage
     const { data: voyageData, error: voyageError } = await supabaseAdmin
       .from('voyages')
       .select(`
@@ -84,41 +313,37 @@ export async function getVoyageDetailsCTV(voyageId: string) {
       return { error: 'Voyage non trouvé' };
     }
 
-    // 2. Récupérer les quotas tickets
+    // ✅ Quotas tickets GLOBAUX (sans voyage_id)
     const { data: quotaTickets, error: quotaTicketError } = await supabaseAdmin
       .from('quota_tickets')
       .select(`
         gare_num,
         quota,
         gare_detail:gare_num(code, gare)
-      `)
-      .eq('voyage_id', voyageId);
+      `);
 
     if (quotaTicketError) {
       return { error: 'Erreur lors du chargement des quotas tickets' };
     }
 
-    // 3. Récupérer les quotas bagages
+    // ✅ Quotas bagages GLOBAUX (sans voyage_id)
     const { data: quotaBagages, error: quotaBagageError } = await supabaseAdmin
       .from('quota_bagages')
-      .select('commune_tutelle, quota_tonnes')
-      .eq('voyage_id', voyageId);
+      .select('commune_tutelle, quota_tonnes');
 
     if (quotaBagageError) {
       return { error: 'Erreur lors du chargement des quotas bagages' };
     }
 
-    // 4. Récupérer les tickets voyageurs vendus
     const { data: ticketsVendus, error: ticketsError } = await supabaseAdmin
       .from('ticket_voyageur')
-      .select('gare_ref, montant, part_madarail')
+      .select('gare_ref, part_madarail')
       .eq('voyage_id', voyageId);
 
     if (ticketsError) {
       return { error: 'Erreur lors du chargement des tickets voyageurs' };
     }
 
-    // 5. Récupérer les tickets bagages vendus
     const { data: bagagesVendus, error: bagagesError } = await supabaseAdmin
       .from('ticket_bagage')
       .select('gare_ref, poids, part_madarail')
@@ -128,7 +353,6 @@ export async function getVoyageDetailsCTV(voyageId: string) {
       return { error: 'Erreur lors du chargement des tickets bagages' };
     }
 
-    // 6. Récupérer les tickets colis vendus
     const { data: colisVendus, error: colisError } = await supabaseAdmin
       .from('ticket_colis')
       .select('gare_ref, poids, part_madarail')
@@ -138,7 +362,6 @@ export async function getVoyageDetailsCTV(voyageId: string) {
       return { error: 'Erreur lors du chargement des tickets colis' };
     }
 
-    // 7. Récupérer toutes les gares
     const { data: allGares, error: garesError } = await supabaseAdmin
       .from('gare')
       .select('num, code, gare')
@@ -148,8 +371,7 @@ export async function getVoyageDetailsCTV(voyageId: string) {
       return { error: 'Erreur lors du chargement des gares' };
     }
 
-    // 8. Construire les ventes par gare
-    const ventesParGare: VenteParGare[] = allGares.map(gare => {
+    const ventesParGare = allGares.map(gare => {
       const tickets = ticketsVendus?.filter(t => t.gare_ref === gare.num) || [];
       const bagages = bagagesVendus?.filter(b => b.gare_ref === gare.num) || [];
       const colis = colisVendus?.filter(c => c.gare_ref === gare.num) || [];
@@ -175,7 +397,6 @@ export async function getVoyageDetailsCTV(voyageId: string) {
       };
     });
 
-    // Filtrer les gares qui ont des quotas ou des ventes
     const garesAvecQuotas = new Set(quotaTickets?.map(q => q.gare_num) || []);
     const garesAvecVentes = ventesParGare.filter(v => 
       v.tickets_vendus > 0 || v.poids_vendu > 0
@@ -184,13 +405,12 @@ export async function getVoyageDetailsCTV(voyageId: string) {
     const garesAffichables = new Set([...garesAvecQuotas, ...garesAvecVentes]);
     const ventesFiltrees = ventesParGare.filter(v => garesAffichables.has(v.gare_num));
 
-    // Calculer les totaux
     const totalTicketsVendus = ventesFiltrees.reduce((sum, v) => sum + v.tickets_vendus, 0);
     const totalPartMadarail = ventesFiltrees.reduce((sum, v) => sum + v.part_madarail_total, 0);
     const totalPoidsVendu = ventesFiltrees.reduce((sum, v) => sum + v.poids_vendu, 0);
     const totalPartMadarailBagage = ventesFiltrees.reduce((sum, v) => sum + v.part_madarail_bagage_total, 0);
 
-    const detail: VoyageDetail = {
+    const detail = {
       ...voyageData,
       quota_tickets: quotaTickets || [],
       quota_bagages: quotaBagages || [],
@@ -207,3 +427,6 @@ export async function getVoyageDetailsCTV(voyageId: string) {
     return { error: 'Erreur lors du chargement des détails' };
   }
 }
+
+// ALIAS pour compatibilité avec l'ancien nom
+export const getVoyageDetailsHistorique = getVoyageHistoriqueDetailsCTV;

@@ -203,7 +203,6 @@ export default function DCOHomePage() {
             
             return (
               <div key={voyage.id} className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
-                {/* En-tête du voyage */}
                 <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-4">
                     <span className="text-sm font-medium text-gray-500">
@@ -226,10 +225,8 @@ export default function DCOHomePage() {
                   </a>
                 </div>
 
-                {/* Détails du voyage avec quotas */}
                 <div className="p-6">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    {/* Parcours */}
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Parcours</p>
                       <div className="flex items-center gap-2">
@@ -243,7 +240,6 @@ export default function DCOHomePage() {
                       </div>
                     </div>
 
-                    {/* Formation */}
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Formation</p>
                       <div className="flex items-center gap-2">
@@ -252,7 +248,6 @@ export default function DCOHomePage() {
                       </div>
                     </div>
 
-                    {/* Quota Places */}
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Quota Places</p>
                       <div className="flex items-center gap-2">
@@ -268,7 +263,6 @@ export default function DCOHomePage() {
                       </div>
                     </div>
 
-                    {/* Quota Bagages */}
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Quota Bagages</p>
                       <div className="flex items-center gap-2">

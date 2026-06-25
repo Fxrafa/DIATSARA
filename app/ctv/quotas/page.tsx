@@ -1,11 +1,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/immutability */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable react-hooks/exhaustive-deps */
+ 
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   Ticket, 
@@ -27,18 +27,6 @@ interface Gare {
   commune_tutelle: string;
 }
 
-interface Voyage {
-  id: string;
-  date_voyage: string;
-  sens: string;
-  gare_depart: number;
-  gare_arrivee: number;
-  places_max: number;
-  poids_max: number;
-  gare_depart_detail?: { code: string; gare: string };
-  gare_arrivee_detail?: { code: string; gare: string };
-}
-
 interface QuotaTicket {
   gare_num: number;
   quota: number;
@@ -52,11 +40,8 @@ interface QuotaBagage {
 type TabType = 'tickets' | 'bagages';
 
 export default function QuotasPage() {
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const voyageId = searchParams.get('voyage');
 
-  const [voyage, setVoyage] = useState<Voyage | null>(null);
   const [gares, setGares] = useState<Gare[]>([]);
   const [communes, setCommunes] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('tickets');
@@ -65,7 +50,7 @@ export default function QuotasPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // États pour les quotas
+  // États pour les quotas globaux
   const [quotaTickets, setQuotaTickets] = useState<QuotaTicket[]>([]);
   const [quotaBagages, setQuotaBagages] = useState<QuotaBagage[]>([]);
 
@@ -74,12 +59,8 @@ export default function QuotasPage() {
   const [totalBagages, setTotalBagages] = useState(0);
 
   useEffect(() => {
-    if (!voyageId) {
-      router.push('/ctv');
-      return;
-    }
     fetchData();
-  }, [voyageId]);
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -97,56 +78,31 @@ export default function QuotasPage() {
       const communesUniques = [...new Set(garesData?.map(g => g.commune_tutelle) || [])];
       setCommunes(communesUniques);
 
-      // Récupérer le voyage
-      const { data: voyageData } = await supabase
-        .from('voyages')
-        .select(`
-          *,
-          gare_depart_detail:gare_depart(code, gare),
-          gare_arrivee_detail:gare_arrivee(code, gare)
-        `)
-        .eq('id', voyageId)
-        .single();
-
-      if (!voyageData) {
-        setError('Voyage non trouvé');
-        setLoading(false);
-        return;
-      }
-
-      if (voyageData.statut === 'termine') {
-        setError('Ce voyage est déjà terminé');
-        setLoading(false);
-        return;
-      }
-
-      setVoyage(voyageData);
-
-      // Récupérer les quotas existants pour les tickets
+      // ✅ Récupérer les quotas tickets GLOBAUX
       const { data: ticketsData } = await supabase
         .from('quota_tickets')
         .select('*')
-        .eq('voyage_id', voyageId);
+        .order('gare_num');
 
       if (ticketsData && ticketsData.length > 0) {
         setQuotaTickets(ticketsData.map(t => ({ gare_num: t.gare_num, quota: t.quota })));
       } else {
-        // Initialiser avec 0 pour toutes les gares
-        const initialTickets = garesData?.map(g => ({ gare_num: g.num, quota: 0 })) || [];
+        // Initialiser avec 50 pour toutes les gares
+        const initialTickets = garesData?.map(g => ({ gare_num: g.num, quota: 50 })) || [];
         setQuotaTickets(initialTickets);
       }
 
-      // Récupérer les quotas existants pour les bagages
+      // ✅ Récupérer les quotas bagages GLOBAUX
       const { data: bagagesData } = await supabase
         .from('quota_bagages')
         .select('*')
-        .eq('voyage_id', voyageId);
+        .order('commune_tutelle');
 
       if (bagagesData && bagagesData.length > 0) {
         setQuotaBagages(bagagesData.map(b => ({ commune_tutelle: b.commune_tutelle, quota_tonnes: b.quota_tonnes })));
       } else {
-        // Initialiser avec 0 pour toutes les communes
-        const initialBagages = communesUniques.map(c => ({ commune_tutelle: c, quota_tonnes: 0 }));
+        // Initialiser avec 3 tonnes pour toutes les communes
+        const initialBagages = communesUniques.map(c => ({ commune_tutelle: c, quota_tonnes: 3 }));
         setQuotaBagages(initialBagages);
       }
 
@@ -188,13 +144,11 @@ export default function QuotasPage() {
   };
 
   const handleSaveTickets = async () => {
-    if (!voyageId) return;
     setSaving(true);
     setError(null);
     setSuccess(null);
 
     const result = await saveQuotaTickets(
-      voyageId,
       quotaTickets.map(q => ({ gare_num: q.gare_num, quota: q.quota }))
     );
 
@@ -207,13 +161,11 @@ export default function QuotasPage() {
   };
 
   const handleSaveBagages = async () => {
-    if (!voyageId) return;
     setSaving(true);
     setError(null);
     setSuccess(null);
 
     const result = await saveQuotaBagages(
-      voyageId,
       quotaBagages.map(q => ({ commune_tutelle: q.commune_tutelle, quota_tonnes: q.quota_tonnes }))
     );
 
@@ -225,32 +177,31 @@ export default function QuotasPage() {
     setSaving(false);
   };
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('fr-FR', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  };
+  // Calcul du total des places max (pour l'affichage)
+  const [placesMax, setPlacesMax] = useState(0);
+  const [poidsMax, setPoidsMax] = useState(0);
+
+  useEffect(() => {
+    const fetchMax = async () => {
+      const { data } = await supabase
+        .from('voyages')
+        .select('places_max, poids_max')
+        .eq('statut', 'actif')
+        .limit(1);
+      
+      if (data && data.length > 0) {
+        setPlacesMax(data[0].places_max);
+        setPoidsMax(data[0].poids_max);
+      }
+    };
+    fetchMax();
+  }, []);
 
   if (loading) {
     return (
       <div className="text-center py-12">
         <Loader2 className="h-12 w-12 text-green-600 animate-spin mx-auto" />
         <p className="mt-4 text-gray-500">Chargement des données...</p>
-      </div>
-    );
-  }
-
-  if (!voyage) {
-    return (
-      <div className="text-center py-12">
-        <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-        <p className="text-gray-600">{error || 'Voyage non trouvé'}</p>
-        <a href="/ctv" className="inline-block mt-4 text-green-600 hover:underline">
-          Retour au tableau de bord
-        </a>
       </div>
     );
   }
@@ -262,17 +213,17 @@ export default function QuotasPage() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Attribution des quotas</h1>
             <p className="text-gray-600 mt-1">
-              Voyage du {formatDate(voyage.date_voyage)} - Sens {voyage.sens}
+              Quotas applicables à tous les voyages actifs
             </p>
           </div>
           <div className="text-right">
-            <div className="text-sm text-gray-500">Capacité maximale</div>
+            <div className="text-sm text-gray-500">Capacité maximale (par voyage)</div>
             <div className="flex items-center gap-4">
               <span className="flex items-center gap-1 text-blue-600 font-medium">
-                <Users className="h-4 w-4" /> {voyage.places_max} places
+                <Users className="h-4 w-4" /> {placesMax} places
               </span>
               <span className="flex items-center gap-1 text-orange-600 font-medium">
-                <Package className="h-4 w-4" /> {voyage.poids_max} tonnes
+                <Package className="h-4 w-4" /> {poidsMax} tonnes
               </span>
             </div>
           </div>
@@ -326,20 +277,20 @@ export default function QuotasPage() {
             {activeTab === 'tickets' ? (
               <>
                 <Users className="h-5 w-5" />
-                <span>Total quotas attribués : <strong>{totalTickets}</strong> / {voyage.places_max} places</span>
+                <span>Total quotas attribués : <strong>{totalTickets}</strong> places</span>
               </>
             ) : (
               <>
                 <Package className="h-5 w-5" />
-                <span>Total quotas attribués : <strong>{totalBagages}</strong> / {voyage.poids_max} tonnes</span>
+                <span>Total quotas attribués : <strong>{totalBagages}</strong> tonnes</span>
               </>
             )}
           </div>
           <div className="text-sm text-gray-500">
             {activeTab === 'tickets' ? (
-              <span>Restant : {voyage.places_max - totalTickets}</span>
+              <span>Répartis sur 25 gares</span>
             ) : (
-              <span>Restant : {voyage.poids_max - totalBagages} tonnes</span>
+              <span>Répartis sur {communes.length} communes</span>
             )}
           </div>
         </div>
@@ -381,13 +332,13 @@ export default function QuotasPage() {
                       <td className="px-4 py-2 text-sm text-gray-600">{gare.code}</td>
                       <td className="px-4 py-2 text-sm text-gray-600">{gare.commune_tutelle}</td>
                       <td className="px-4 py-2 text-right">
-                      <input
-                        type="number"
-                        min="0"
-                        value={quota?.quota || 0}
-                        onChange={(e) => handleTicketChange(gare.num, parseInt(e.target.value) || 0)}
-                        className="w-24 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-right text-gray-900 font-medium"
-                      />
+                        <input
+                          type="number"
+                          min="0"
+                          value={quota?.quota || 0}
+                          onChange={(e) => handleTicketChange(gare.num, parseInt(e.target.value) || 0)}
+                          className="w-24 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-right text-gray-900 font-medium"
+                        />
                       </td>
                     </tr>
                   );
@@ -437,10 +388,12 @@ export default function QuotasPage() {
                       <td className="px-4 py-2 text-right">
                         <input
                           type="number"
+                          step="0.1"
                           min="0"
                           value={quota?.quota_tonnes || 0}
-                          onChange={(e) => handleBagageChange(commune, parseInt(e.target.value) || 0)}
-                          className="w-24 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-right text-gray-900 font-medium"                        />
+                          onChange={(e) => handleBagageChange(commune, parseFloat(e.target.value) || 0)}
+                          className="w-24 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-right text-gray-900 font-medium"
+                        />
                       </td>
                     </tr>
                   );

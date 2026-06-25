@@ -7,9 +7,11 @@ import { useEffect, useState } from 'react';
 import Navbar from '@/components/Navbar';
 import { 
   Users, Package, Ticket, MapPin, Train, Calendar, 
-  CheckCircle, Clock, AlertCircle, Loader2, History
+  CheckCircle, Clock, AlertCircle, Loader2, History,
+  Lock
 } from 'lucide-react';
 import { getVBCData } from './actions';
+import { supabase } from '@/lib/supabaseClient';
 
 interface Gare {
   num: number;
@@ -21,7 +23,6 @@ interface Gare {
 
 interface QuotaTicket {
   id: string;
-  voyage_id: string;
   gare_num: number;
   quota: number;
   created_at: string;
@@ -30,7 +31,6 @@ interface QuotaTicket {
 
 interface QuotaBagage {
   id: string;
-  voyage_id: string;
   commune_tutelle: string;
   quota_tonnes: number;
   created_at: string;
@@ -52,7 +52,7 @@ interface Voyage {
   gare_arrivee_detail?: { code: string; gare: string };
 }
 
-interface VoyageWithQuotas {
+interface VoyageWithQuotasBase {
   voyage: Voyage;
   quota_tickets: QuotaTicket[];
   quota_bagages: QuotaBagage[];
@@ -62,6 +62,10 @@ interface VoyageWithQuotas {
   bagages_vendus: number;
   places_1ere: number;
   places_2eme: number;
+}
+
+interface VoyageWithQuotas extends VoyageWithQuotasBase {
+  vente_desactivee: boolean;
 }
 
 export default function VBCPage() {
@@ -87,7 +91,32 @@ export default function VBCPage() {
 
         setProfile(result.profile);
         setGare(result.gare || null);
-        setVoyages(result.voyages || []);
+
+        const voyagesWithStatus: VoyageWithQuotas[] = await Promise.all(
+          (result.voyages || []).map(async (voyageData: VoyageWithQuotasBase) => {
+            let venteDesactivee = false;
+            
+            if (result.profile?.gare_ref) {
+              const { data: desactivee } = await supabase
+                .from('vente_desactivee')
+                .select('id')
+                .eq('voyage_id', voyageData.voyage.id)
+                .eq('gare_num', result.profile.gare_ref)
+                .maybeSingle();
+              
+              if (desactivee) {
+                venteDesactivee = true;
+              }
+            }
+            
+            return {
+              ...voyageData,
+              vente_desactivee: venteDesactivee,
+            };
+          })
+        );
+
+        setVoyages(voyagesWithStatus);
 
       } catch (err) {
         console.error('Erreur:', err);
@@ -214,7 +243,7 @@ export default function VBCPage() {
             </h2>
 
             <div className="space-y-4">
-              {voyages.map(({ voyage, quota_tickets, quota_bagages, total_tickets, total_bagages, tickets_vendus, bagages_vendus, places_1ere, places_2eme }) => (
+              {voyages.map(({ voyage, quota_tickets, quota_bagages, total_tickets, total_bagages, tickets_vendus, bagages_vendus, places_1ere, places_2eme, vente_desactivee }) => (
                 <div key={voyage.id} className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
                   <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-4">
@@ -225,19 +254,35 @@ export default function VBCPage() {
                       <span className="text-sm font-medium text-gray-700">
                         Sens {voyage.sens}
                       </span>
+                      {vente_desactivee && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                          <Lock className="h-3 w-3" />
+                          Vente désactivée
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="flex items-center gap-1 text-blue-600">
                         <Train className="h-4 w-4" />
                         {voyage.gare_depart_detail?.code} → {voyage.gare_arrivee_detail?.code}
                       </span>
-                      <a
-                        href={`/vbc/vente/${voyage.id}`}
-                        className="inline-flex items-center gap-1 px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-medium transition"
-                      >
-                        <Ticket className="h-3 w-3" />
-                        Vendre
-                      </a>
+                      {vente_desactivee ? (
+                        <button
+                          disabled
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-gray-300 text-gray-500 rounded-lg text-xs font-medium cursor-not-allowed"
+                        >
+                          <Lock className="h-3 w-3" />
+                          Vente désactivée
+                        </button>
+                      ) : (
+                        <a
+                          href={`/vbc/vente/${voyage.id}`}
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-medium transition"
+                        >
+                          <Ticket className="h-3 w-3" />
+                          Vendre
+                        </a>
+                      )}
                       <a
                         href={`/vbc/historique/${voyage.id}`}
                         className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium transition"
@@ -251,96 +296,64 @@ export default function VBCPage() {
                   {/* Détails des quotas */}
                   <div className="p-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Quota Tickets */}
-                      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="text-sm font-semibold text-blue-800 flex items-center gap-2">
-                            <Ticket className="h-4 w-4" />
-                            Quota Tickets Voyageurs
-                          </h3>
-                          <span className={`text-sm font-bold ${total_tickets > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
-                            {tickets_vendus} / {total_tickets}
-                          </span>
-                        </div>
-                        
-                        {quota_tickets.length === 0 ? (
-                          <p className="text-sm text-gray-500">Aucun quota attribué</p>
-                        ) : (
-                          <div className="space-y-1">
-                            {quota_tickets.map(q => (
-                              <div key={q.id} className="flex justify-between text-sm">
-                                <span className="text-gray-600">Places attribuées</span>
-                                <span className="font-medium text-blue-700">{q.quota}</span>
-                              </div>
-                            ))}
-                            <div className="border-t border-blue-200 pt-1 mt-1 flex justify-between text-sm  text-gray-500">
-                              <span>Total</span>
-                              <span className="text-blue-700">{total_tickets}</span>
-                            </div>
-                            <div className="flex justify-between text-sm text-gray-500">
-                              <span>Vendus</span>
-                              <span className="font-medium">{tickets_vendus}</span>
-                            </div>
-                            <div className="flex justify-between text-sm  text-gray-500">
-                              <span>Restants</span>
-                              <span className={`${total_tickets - tickets_vendus > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {total_tickets - tickets_vendus}
-                              </span>
-                            </div>
-                            {/* Places par classe */}
-                            <div className="mt-2 border-t border-blue-200 pt-2">
-                              <div className="flex justify-between text-xs">
-                                <span className="text-gray-500">1ère classe</span>
-                                <span className="font-medium text-blue-700">{places_1ere} / {voyage.formation_voiture * 60}</span>
-                              </div>
-                              <div className="flex justify-between text-xs">
-                                <span className="text-gray-500">2ème classe</span>
-                                <span className="font-medium text-blue-700">{places_2eme} / {voyage.formation_voiture2 * 72}</span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
+                  {/* Quota Tickets*/}
+                  <div className="space-y-1">
+                    {quota_tickets.map((q, index) => (
+                      <div key={q.id || `ticket-${index}`} className="flex justify-between text-sm">
+                        <span className="text-gray-600">Places attribuées</span>
+                        <span className="font-medium text-blue-700">{q.quota}</span>
                       </div>
+                    ))}
+                    <div className="border-t border-blue-200 pt-1 mt-1 flex justify-between text-sm  text-gray-500">
+                      <span>Total</span>
+                      <span className="text-blue-700">{total_tickets}</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>Vendus</span>
+                      <span className="font-medium">{tickets_vendus}</span>
+                    </div>
+                    <div className="flex justify-between text-sm  text-gray-500">
+                      <span>Restants</span>
+                      <span className={`${total_tickets - tickets_vendus > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {total_tickets - tickets_vendus}
+                      </span>
+                    </div>
+                    {/* Places par classe */}
+                    <div className="mt-2 border-t border-blue-200 pt-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">1ère classe</span>
+                        <span className="font-medium text-blue-700">{places_1ere} / {voyage.formation_voiture * 60}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">2ème classe</span>
+                        <span className="font-medium text-blue-700">{places_2eme} / {voyage.formation_voiture2 * 72}</span>
+                      </div>
+                    </div>
+                  </div>
 
-                      {/* Quota Bagages */}
-                      <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="text-sm font-semibold text-orange-800 flex items-center gap-2">
-                            <Package className="h-4 w-4" />
-                            Quota Tickets Bagages
-                          </h3>
-                          <span className={`text-sm font-bold ${total_bagages > 0 ? 'text-orange-700' : 'text-gray-400'}`}>
-                            {(bagages_vendus / 1000).toFixed(1)}T / {(total_bagages / 1000).toFixed(1)}T
-                          </span>
-                        </div>
-                        
-                        {quota_bagages.length === 0 ? (
-                          <p className="text-sm text-gray-500">Aucun quota attribué</p>
-                        ) : (
-                          <div className="space-y-1">
-                            {quota_bagages.map(q => (
-                              <div key={q.id} className="flex justify-between text-sm">
-                                <span className="text-gray-600">Capacité fret</span>
-                                <span className="font-medium text-orange-700">{q.quota_tonnes} tonnes</span>
-                              </div>
-                            ))}
-                            <div className="border-t border-orange-200 pt-1 mt-1 flex justify-between text-sm  text-gray-500">
-                              <span>Total</span>
-                              <span className="text-orange-700">{(total_bagages / 1000).toFixed(1)}T</span>
-                            </div>
-                            <div className="flex justify-between text-sm text-gray-500">
-                              <span>Vendus</span>
-                              <span className="font-medium">{(bagages_vendus / 1000).toFixed(1)}T</span>
-                            </div>
-                            <div className="flex justify-between text-sm  text-gray-500">
-                              <span>Restants</span>
-                              <span className={`${total_bagages - bagages_vendus > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {((total_bagages - bagages_vendus) / 1000).toFixed(1)}T
-                              </span>
-                            </div>
-                          </div>
-                        )}
+                  {/*Quota Bagages*/}
+                  <div className="space-y-1">
+                    {quota_bagages.map((q, index) => (
+                      <div key={q.id || `bagage-${index}`} className="flex justify-between text-sm">
+                        <span className="text-gray-600">Capacité fret</span>
+                        <span className="font-medium text-orange-700">{q.quota_tonnes} tonnes</span>
                       </div>
+                    ))}
+                    <div className="border-t border-orange-200 pt-1 mt-1 flex justify-between text-sm  text-gray-500">
+                      <span>Total</span>
+                      <span className="text-orange-700">{(total_bagages / 1000).toFixed(1)}T</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>Vendus</span>
+                      <span className="font-medium">{(bagages_vendus / 1000).toFixed(1)}T</span>
+                    </div>
+                    <div className="flex justify-between text-sm  text-gray-500">
+                      <span>Restants</span>
+                      <span className={`${total_bagages - bagages_vendus > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {((total_bagages - bagages_vendus) / 1000).toFixed(1)}T
+                      </span>
+                    </div>
+                  </div>
                     </div>
 
                     {/* Taux d'occupation */}

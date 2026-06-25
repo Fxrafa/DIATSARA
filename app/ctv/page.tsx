@@ -47,31 +47,24 @@ export default function CTVPage() {
         return;
       }
 
-      // Pour chaque voyage, récupérer les quotas
-      const voyagesWithQuotas = await Promise.all(
-        voyagesData.map(async (voyage) => {
-          // Récupérer les quotas tickets pour ce voyage
-          const { data: tickets } = await supabase
-            .from('quota_tickets')
-            .select('quota')
-            .eq('voyage_id', voyage.id);
+      // ✅ Récupérer les quotas GLOBAUX (sans voyage_id)
+      const { data: ticketsQuotas } = await supabase
+        .from('quota_tickets')
+        .select('quota');
 
-          // Récupérer les quotas bagages pour ce voyage
-          const { data: bagages } = await supabase
-            .from('quota_bagages')
-            .select('quota_tonnes')
-            .eq('voyage_id', voyage.id);
+      const { data: bagagesQuotas } = await supabase
+        .from('quota_bagages')
+        .select('quota_tonnes');
 
-          const totalPlaces = tickets?.reduce((sum, t) => sum + t.quota, 0) || 0;
-          const totalTonnes = bagages?.reduce((sum, b) => sum + b.quota_tonnes, 0) || 0;
+      const totalPlacesGlobal = ticketsQuotas?.reduce((sum, t) => sum + t.quota, 0) || 0;
+      const totalTonnesGlobal = bagagesQuotas?.reduce((sum, b) => sum + b.quota_tonnes, 0) || 0;
 
-          return {
-            ...voyage,
-            total_places_attribuees: totalPlaces,
-            total_tonnes_attribuees: totalTonnes,
-          };
-        })
-      );
+      // Pour chaque voyage, les quotas sont les mêmes (globaux)
+      const voyagesWithQuotas = voyagesData.map((voyage) => ({
+        ...voyage,
+        total_places_attribuees: totalPlacesGlobal,
+        total_tonnes_attribuees: totalTonnesGlobal,
+      }));
 
       setVoyages(voyagesWithQuotas);
       setLoading(false);
@@ -163,7 +156,7 @@ export default function CTVPage() {
                     </span>
                   </div>
                   <a
-                    href={`/ctv/quotas?voyage=${voyage.id}`}
+                    href={`/ctv/quotas`}
                     className="flex items-center gap-1 px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium transition"
                   >
                     <Ticket className="h-3 w-3" />
