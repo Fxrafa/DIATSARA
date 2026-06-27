@@ -9,7 +9,7 @@ import {
   ArrowLeft, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { getVoyagesHistorique, getVoyageDetailsCTV } from '../actions';
+import { getVoyagesHistorique, getVoyageDetailsHistorique } from '../actions';
 
 interface Voyage {
   id: string;
@@ -42,6 +42,7 @@ interface VenteParGare {
   gare_num: number;
   gare_code: string;
   gare_name: string;
+  commune_tutelle: string;
   tickets_vendus: number;
   part_madarail_total: number;
   poids_vendu: number;
@@ -96,7 +97,8 @@ export default function CTVHistoriquePage() {
     setError(null);
 
     try {
-      const result = await getVoyageDetailsCTV(voyageId);
+      // ✅ Utiliser getVoyageDetailsHistorique (alias de getVoyageHistoriqueDetailsCTV)
+      const result = await getVoyageDetailsHistorique(voyageId);
       
       if (result.error) {
         setError(result.error);
@@ -225,7 +227,7 @@ export default function CTVHistoriquePage() {
             <p className="text-2xl font-bold text-green-600">{formatPrice(selectedVoyage.total_part_madarail)}</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-orange-500">
-            <p className="text-xs text-gray-500">Poids vendu (bagages+colis)</p>
+            <p className="text-xs text-gray-500">Poids vendu (équiv. kg)</p>
             <p className="text-2xl font-bold text-orange-600">{selectedVoyage.total_poids_vendu.toFixed(1)} kg</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-purple-500">

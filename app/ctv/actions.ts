@@ -274,7 +274,6 @@ export async function saveQuotaBagages(
 
 // ==================== FONCTIONS POUR L'HISTORIQUE CTV ====================
 
-// Récupérer l'historique des voyages pour le CTV
 export async function getVoyagesHistoriqueCTV() {
   const { data: voyages, error } = await supabaseAdmin
     .from('voyages')
@@ -296,7 +295,6 @@ export async function getVoyagesHistoriqueCTV() {
 // ALIAS pour compatibilité avec l'ancien nom
 export const getVoyagesHistorique = getVoyagesHistoriqueCTV;
 
-// Récupérer les détails d'un voyage pour l'historique CTV
 export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
   try {
     const { data: voyageData, error: voyageError } = await supabaseAdmin
@@ -313,7 +311,7 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
       return { error: 'Voyage non trouvé' };
     }
 
-    // ✅ Quotas tickets GLOBAUX (sans voyage_id)
+    // ✅ Récupérer les quotas tickets GLOBAUX (sans voyage_id)
     const { data: quotaTickets, error: quotaTicketError } = await supabaseAdmin
       .from('quota_tickets')
       .select(`
@@ -326,7 +324,7 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
       return { error: 'Erreur lors du chargement des quotas tickets' };
     }
 
-    // ✅ Quotas bagages GLOBAUX (sans voyage_id)
+    // ✅ Récupérer les quotas bagages GLOBAUX (sans voyage_id)
     const { data: quotaBagages, error: quotaBagageError } = await supabaseAdmin
       .from('quota_bagages')
       .select('commune_tutelle, quota_tonnes');
@@ -335,6 +333,13 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
       return { error: 'Erreur lors du chargement des quotas bagages' };
     }
 
+    // Créer un map commune -> quota_tonnes pour un accès rapide
+    const quotaBagagesMap = new Map<string, number>();
+    quotaBagages?.forEach(q => {
+      quotaBagagesMap.set(q.commune_tutelle, q.quota_tonnes);
+    });
+
+    // Récupérer les tickets voyageurs vendus
     const { data: ticketsVendus, error: ticketsError } = await supabaseAdmin
       .from('ticket_voyageur')
       .select('gare_ref, part_madarail')
@@ -344,18 +349,20 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
       return { error: 'Erreur lors du chargement des tickets voyageurs' };
     }
 
+    // ✅ Récupérer les tickets bagages avec poids, volume et part_madarail
     const { data: bagagesVendus, error: bagagesError } = await supabaseAdmin
       .from('ticket_bagage')
-      .select('gare_ref, poids, part_madarail')
+      .select('gare_ref, poids, volume, part_madarail')
       .eq('voyage_id', voyageId);
 
     if (bagagesError) {
       return { error: 'Erreur lors du chargement des tickets bagages' };
     }
 
+    // ✅ Récupérer les tickets colis avec poids, volume et part_madarail
     const { data: colisVendus, error: colisError } = await supabaseAdmin
       .from('ticket_colis')
-      .select('gare_ref, poids, part_madarail')
+      .select('gare_ref, poids, volume, part_madarail')
       .eq('voyage_id', voyageId);
 
     if (colisError) {
@@ -364,13 +371,14 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
 
     const { data: allGares, error: garesError } = await supabaseAdmin
       .from('gare')
-      .select('num, code, gare')
+      .select('num, code, gare, commune_tutelle')
       .order('num');
 
     if (garesError) {
       return { error: 'Erreur lors du chargement des gares' };
     }
 
+    // ✅ Construire les ventes par gare avec poids équivalent
     const ventesParGare = allGares.map(gare => {
       const tickets = ticketsVendus?.filter(t => t.gare_ref === gare.num) || [];
       const bagages = bagagesVendus?.filter(b => b.gare_ref === gare.num) || [];
@@ -379,10 +387,13 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
       const ticketsVendusCount = tickets.length;
       const partMadarailTotal = tickets.reduce((sum, t) => sum + (t.part_madarail || 0), 0);
       
-      const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0), 0);
-      const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0), 0);
+      // ✅ Poids équivalent pour les bagages (poids + volume * 500)
+      const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0) + ((b.volume || 0) * 500), 0);
+      // ✅ Poids équivalent pour les colis (poids + volume * 500)
+      const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0) + ((c.volume || 0) * 500), 0);
       const poidsTotal = poidsBagages + poidsColis;
       
+      // ✅ Recette bagages (part_madarail)
       const partMadarailBagages = bagages.reduce((sum, b) => sum + (b.part_madarail || 0), 0);
       const partMadarailColis = colis.reduce((sum, c) => sum + (c.part_madarail || 0), 0);
 
@@ -390,6 +401,7 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
         gare_num: gare.num,
         gare_code: gare.code,
         gare_name: gare.gare,
+        commune_tutelle: gare.commune_tutelle,
         tickets_vendus: ticketsVendusCount,
         part_madarail_total: partMadarailTotal,
         poids_vendu: poidsTotal,
@@ -397,6 +409,7 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
       };
     });
 
+    // ✅ Filtrer les gares qui ont des quotas ou des ventes
     const garesAvecQuotas = new Set(quotaTickets?.map(q => q.gare_num) || []);
     const garesAvecVentes = ventesParGare.filter(v => 
       v.tickets_vendus > 0 || v.poids_vendu > 0
@@ -405,6 +418,23 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
     const garesAffichables = new Set([...garesAvecQuotas, ...garesAvecVentes]);
     const ventesFiltrees = ventesParGare.filter(v => garesAffichables.has(v.gare_num));
 
+    // ✅ Si aucune donnée, retourner un tableau vide
+    if (ventesFiltrees.length === 0) {
+      return {
+        detail: {
+          ...voyageData,
+          quota_tickets: [],
+          quota_bagages: [],
+          ventes_par_gare: [],
+          total_tickets_vendus: 0,
+          total_part_madarail: 0,
+          total_poids_vendu: 0,
+          total_part_madarail_bagage: 0,
+        }
+      };
+    }
+
+    // ✅ Calculer les totaux
     const totalTicketsVendus = ventesFiltrees.reduce((sum, v) => sum + v.tickets_vendus, 0);
     const totalPartMadarail = ventesFiltrees.reduce((sum, v) => sum + v.part_madarail_total, 0);
     const totalPoidsVendu = ventesFiltrees.reduce((sum, v) => sum + v.poids_vendu, 0);
