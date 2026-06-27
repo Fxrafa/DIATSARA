@@ -401,6 +401,7 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       return { error: 'Voyage non trouvé' };
     }
 
+    // Récupérer les tickets voyageurs vendus par gare
     const { data: ticketsVendus, error: ticketsError } = await supabaseAdmin
       .from('ticket_voyageur')
       .select('gare_ref, part_madarail')
@@ -410,18 +411,20 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       return { error: 'Erreur lors du chargement des tickets voyageurs' };
     }
 
+    // ✅ Récupérer les tickets bagages avec poids et volume
     const { data: bagagesVendus, error: bagagesError } = await supabaseAdmin
       .from('ticket_bagage')
-      .select('gare_ref, poids, part_madarail')
+      .select('gare_ref, poids, volume, part_madarail')
       .eq('voyage_id', voyageId);
 
     if (bagagesError) {
       return { error: 'Erreur lors du chargement des tickets bagages' };
     }
 
+    // ✅ Récupérer les tickets colis avec poids et volume
     const { data: colisVendus, error: colisError } = await supabaseAdmin
       .from('ticket_colis')
-      .select('gare_ref, poids, part_madarail')
+      .select('gare_ref, poids, volume, part_madarail')
       .eq('voyage_id', voyageId);
 
     if (colisError) {
@@ -437,6 +440,7 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       return { error: 'Erreur lors du chargement des gares' };
     }
 
+    // ✅ Construire les ventes par gare avec poids équivalent
     const ventesParGare = allGares.map(gare => {
       const tickets = ticketsVendus?.filter(t => t.gare_ref === gare.num) || [];
       const bagages = bagagesVendus?.filter(b => b.gare_ref === gare.num) || [];
@@ -445,10 +449,13 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       const ticketsVendusCount = tickets.length;
       const recetteTickets = tickets.reduce((sum, t) => sum + (t.part_madarail || 0), 0);
       
-      const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0), 0);
-      const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0), 0);
+      // ✅ Poids équivalent pour les bagages (poids + volume * 500)
+      const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0) + ((b.volume || 0) * 500), 0);
+      // ✅ Poids équivalent pour les colis (poids + volume * 500)
+      const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0) + ((c.volume || 0) * 500), 0);
       const poidsTotal = poidsBagages + poidsColis;
       
+      // ✅ Recette bagages (part_madarail)
       const recetteBagages = bagages.reduce((sum, b) => sum + (b.part_madarail || 0), 0);
       const recetteColis = colis.reduce((sum, c) => sum + (c.part_madarail || 0), 0);
       const recetteBagagesTotal = recetteBagages + recetteColis;
@@ -465,15 +472,36 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       };
     });
 
-    const totalTicketsVendus = ventesParGare.reduce((sum, v) => sum + v.tickets_vendus, 0);
-    const totalRecetteTickets = ventesParGare.reduce((sum, v) => sum + v.recette_tickets, 0);
-    const totalPoidsVendu = ventesParGare.reduce((sum, v) => sum + v.poids_vendu, 0);
-    const totalRecetteBagages = ventesParGare.reduce((sum, v) => sum + v.recette_bagages, 0);
-    const totalRecette = ventesParGare.reduce((sum, v) => sum + v.recette_totale, 0);
+    // ✅ Filtrer les gares qui ont des ventes (tickets ou poids)
+    const garesAvecVentes = ventesParGare.filter(v => 
+      v.tickets_vendus > 0 || v.poids_vendu > 0
+    );
+
+    // Si aucune vente, retourner un tableau vide
+    if (garesAvecVentes.length === 0) {
+      return {
+        detail: {
+          ...voyageData,
+          ventes_par_gare: [],
+          total_tickets_vendus: 0,
+          total_recette_tickets: 0,
+          total_poids_vendu: 0,
+          total_recette_bagages: 0,
+          total_recette: 0,
+        }
+      };
+    }
+
+    // ✅ Calculer les totaux
+    const totalTicketsVendus = garesAvecVentes.reduce((sum, v) => sum + v.tickets_vendus, 0);
+    const totalRecetteTickets = garesAvecVentes.reduce((sum, v) => sum + v.recette_tickets, 0);
+    const totalPoidsVendu = garesAvecVentes.reduce((sum, v) => sum + v.poids_vendu, 0);
+    const totalRecetteBagages = garesAvecVentes.reduce((sum, v) => sum + v.recette_bagages, 0);
+    const totalRecette = garesAvecVentes.reduce((sum, v) => sum + v.recette_totale, 0);
 
     const detail = {
       ...voyageData,
-      ventes_par_gare: ventesParGare,
+      ventes_par_gare: garesAvecVentes,
       total_tickets_vendus: totalTicketsVendus,
       total_recette_tickets: totalRecetteTickets,
       total_poids_vendu: totalPoidsVendu,

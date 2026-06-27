@@ -262,7 +262,7 @@ export default function DCOHistoriqueRecettePage() {
             <p className="text-2xl font-bold text-green-600">{formatPrice(selectedVoyage.total_recette_tickets)}</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-orange-500">
-            <p className="text-xs text-gray-500">Poids vendu (bagages+colis)</p>
+            <p className="text-xs text-gray-500">Poids vendu (équiv. kg)</p>
             <p className="text-2xl font-bold text-orange-600">{selectedVoyage.total_poids_vendu.toFixed(1)} kg</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-purple-500">
