@@ -12,7 +12,6 @@ import {
   Users, Weight, Clock, CheckCircle, History,
   TrendingUp
 } from 'lucide-react';
-import { getTicketsVendus } from '@/app/vbc/actions';
 
 interface Voyage {
   id: string;
@@ -35,6 +34,7 @@ interface TicketVoyageur {
   arrivee: string;
   classe: string;
   montant: number;
+  part_madarail: number;
   created_at: string;
 }
 
@@ -47,6 +47,7 @@ interface TicketBagage {
   poids: number;
   volume: number;
   montant: number;
+  part_madarail: number;
   created_at: string;
 }
 
@@ -59,6 +60,7 @@ interface TicketColis {
   poids: number;
   volume: number;
   montant: number;
+  part_madarail: number;
   nom_expediteur: string;
   num_tel_expediteur: string;
   nom_destinataire: string;
@@ -71,13 +73,19 @@ interface Stats {
   total_bagages: number;
   total_colis: number;
   total_montant: number;
+  total_part_madarail: number;
   total_places_vendues: number;
   total_poids_vendu: number;
   montant_1ere: number;
+  part_madarail_1ere: number;
   montant_2eme: number;
+  part_madarail_2eme: number;
   montant_voyageurs: number;
+  part_madarail_voyageurs: number;
   montant_bagages: number;
+  part_madarail_bagages: number;
   montant_colis: number;
+  part_madarail_colis: number;
 }
 
 type TabType = 'voyageurs' | 'bagages' | 'colis';
@@ -99,13 +107,19 @@ export default function HistoriqueVentePage() {
     total_bagages: 0,
     total_colis: 0,
     total_montant: 0,
+    total_part_madarail: 0,
     total_places_vendues: 0,
     total_poids_vendu: 0,
     montant_1ere: 0,
+    part_madarail_1ere: 0,
     montant_2eme: 0,
+    part_madarail_2eme: 0,
     montant_voyageurs: 0,
+    part_madarail_voyageurs: 0,
     montant_bagages: 0,
+    part_madarail_bagages: 0,
     montant_colis: 0,
+    part_madarail_colis: 0,
   });
 
   useEffect(() => {
@@ -151,50 +165,102 @@ export default function HistoriqueVentePage() {
           return;
         }
 
-        // ✅ Utiliser la Server Action pour récupérer les tickets
-        const result = await getTicketsVendus(voyageId, profile.gare_ref);
+        // Récupérer les tickets voyageurs
+        const { data: ticketsV } = await supabase
+          .from('ticket_voyageur')
+          .select('*')
+          .eq('voyage_id', voyageId)
+          .eq('gare_ref', profile.gare_ref)
+          .order('created_at', { ascending: false });
 
-        if (result.voyageurs) {
-          setTicketsVoyageurs(result.voyageurs);
+        if (ticketsV) {
+          setTicketsVoyageurs(ticketsV);
         }
-        if (result.bagages) {
-          setTicketsBagages(result.bagages);
+
+        // Récupérer les tickets bagages
+        const { data: ticketsB } = await supabase
+          .from('ticket_bagage')
+          .select('*')
+          .eq('voyage_id', voyageId)
+          .eq('gare_ref', profile.gare_ref)
+          .order('created_at', { ascending: false });
+
+        if (ticketsB) {
+          setTicketsBagages(ticketsB);
         }
-        if (result.colis) {
-          setTicketsColis(result.colis);
+
+        // Récupérer les tickets colis
+        const { data: ticketsC } = await supabase
+          .from('ticket_colis')
+          .select('*')
+          .eq('voyage_id', voyageId)
+          .eq('gare_ref', profile.gare_ref)
+          .order('created_at', { ascending: false });
+
+        if (ticketsC) {
+          setTicketsColis(ticketsC);
         }
 
         // Calculer les statistiques
-        const ticketsV = result.voyageurs || [];
-        const ticketsB = result.bagages || [];
-        const ticketsC = result.colis || [];
-
-        const totalVoyageurs = ticketsV.length;
-        const totalBagages = ticketsB.length;
-        const totalColis = ticketsC.length;
+        const totalVoyageurs = ticketsV?.length || 0;
+        const totalBagages = ticketsB?.length || 0;
+        const totalColis = ticketsC?.length || 0;
         
-        const montantVoyageurs = ticketsV.reduce((sum, t) => sum + t.montant, 0);
-        const montantBagages = ticketsB.reduce((sum, t) => sum + t.montant, 0);
-        const montantColis = ticketsC.reduce((sum, t) => sum + t.montant, 0);
+        // Montants et part Madarail par type
+        const montantVoyageurs = ticketsV?.reduce((sum, t) => sum + t.montant, 0) || 0;
+        const partMadarailVoyageurs = ticketsV?.reduce((sum, t) => sum + (t.part_madarail || 0), 0) || 0;
         
-        const montant1ere = ticketsV.filter(t => t.classe === '1ere').reduce((sum, t) => sum + t.montant, 0);
-        const montant2eme = ticketsV.filter(t => t.classe === '2eme').reduce((sum, t) => sum + t.montant, 0);
+        const montantBagages = ticketsB?.reduce((sum, t) => sum + t.montant, 0) || 0;
+        const partMadarailBagages = ticketsB?.reduce((sum, t) => sum + (t.part_madarail || 0), 0) || 0;
         
-        const placesVendues = ticketsV.length;
-        const poidsVendu = ticketsB.reduce((sum, t) => sum + (t.poids || 0), 0);
+        const montantColis = ticketsC?.reduce((sum, t) => sum + t.montant, 0) || 0;
+        const partMadarailColis = ticketsC?.reduce((sum, t) => sum + (t.part_madarail || 0), 0) || 0;
+        
+        // Montants et part Madarail par classe pour les voyageurs
+        const montant1ere = ticketsV?.filter(t => t.classe === '1ere').reduce((sum, t) => sum + t.montant, 0) || 0;
+        const partMadarail1ere = ticketsV?.filter(t => t.classe === '1ere').reduce((sum, t) => sum + (t.part_madarail || 0), 0) || 0;
+        
+        const montant2eme = ticketsV?.filter(t => t.classe === '2eme').reduce((sum, t) => sum + t.montant, 0) || 0;
+        const partMadarail2eme = ticketsV?.filter(t => t.classe === '2eme').reduce((sum, t) => sum + (t.part_madarail || 0), 0) || 0;
+        
+        const placesVendues = ticketsV?.length || 0;
+        
+        // Calcul du poids équivalent pour les bagages (poids + volume * 500)
+        const poidsBagages = ticketsB?.reduce((sum, t) => {
+          const poids = t.poids || 0;
+          const volume = t.volume || 0;
+          return sum + poids + (volume * 500);
+        }, 0) || 0;
+        
+        // Calcul du poids équivalent pour les colis (poids + volume * 500)
+        const poidsColis = ticketsC?.reduce((sum, t) => {
+          const poids = t.poids || 0;
+          const volume = t.volume || 0;
+          return sum + poids + (volume * 500);
+        }, 0) || 0;
+        
+        const totalPoidsVendu = poidsBagages + poidsColis;
+        const totalMontant = montantVoyageurs + montantBagages + montantColis;
+        const totalPartMadarail = partMadarailVoyageurs + partMadarailBagages + partMadarailColis;
 
         setStats({
           total_voyageurs: totalVoyageurs,
           total_bagages: totalBagages,
           total_colis: totalColis,
-          total_montant: montantVoyageurs + montantBagages + montantColis,
+          total_montant: totalMontant,
+          total_part_madarail: totalPartMadarail,
           total_places_vendues: placesVendues,
-          total_poids_vendu: poidsVendu,
+          total_poids_vendu: totalPoidsVendu,
           montant_1ere: montant1ere,
+          part_madarail_1ere: partMadarail1ere,
           montant_2eme: montant2eme,
+          part_madarail_2eme: partMadarail2eme,
           montant_voyageurs: montantVoyageurs,
+          part_madarail_voyageurs: partMadarailVoyageurs,
           montant_bagages: montantBagages,
+          part_madarail_bagages: partMadarailBagages,
           montant_colis: montantColis,
+          part_madarail_colis: partMadarailColis,
         });
 
       } catch (err) {
@@ -303,7 +369,7 @@ export default function HistoriqueVentePage() {
         </div>
 
         {/* Statistiques générales */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
             <p className="text-xs text-gray-500">Tickets voyageurs</p>
             <p className="text-2xl font-bold text-blue-600">{stats.total_voyageurs}</p>
@@ -320,9 +386,13 @@ export default function HistoriqueVentePage() {
             <p className="text-xs text-gray-500">Montant total</p>
             <p className="text-2xl font-bold text-orange-600">{formatPrice(stats.total_montant)}</p>
           </div>
+          <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-indigo-500">
+            <p className="text-xs text-gray-500">Part Madarail total</p>
+            <p className="text-2xl font-bold text-indigo-600">{formatPrice(stats.total_part_madarail)}</p>
+          </div>
         </div>
 
-        {/* Détails des montants par type */}
+        {/* Détails des montants par type avec Part Madarail */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
             <div className="flex items-center gap-2 mb-2">
@@ -334,13 +404,25 @@ export default function HistoriqueVentePage() {
                 <span className="text-gray-600">1ère classe:</span>
                 <span className="font-medium text-yellow-700">{formatPrice(stats.montant_1ere)}</span>
               </div>
+              <div className="flex justify-between text-xs text-gray-500 pl-4">
+                <span>Part Madarail:</span>
+                <span>{formatPrice(stats.part_madarail_1ere)}</span>
+              </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">2ème classe:</span>
                 <span className="font-medium text-gray-700">{formatPrice(stats.montant_2eme)}</span>
               </div>
+              <div className="flex justify-between text-xs text-gray-500 pl-4">
+                <span>Part Madarail:</span>
+                <span>{formatPrice(stats.part_madarail_2eme)}</span>
+              </div>
               <div className="flex justify-between border-t border-blue-200 pt-1 mt-1 font-semibold">
                 <span className="text-blue-800">Total:</span>
                 <span className="text-blue-800">{formatPrice(stats.montant_voyageurs)}</span>
+              </div>
+              <div className="flex justify-between text-xs text-blue-600 font-medium">
+                <span>Part Madarail total:</span>
+                <span>{formatPrice(stats.part_madarail_voyageurs)}</span>
               </div>
             </div>
           </div>
@@ -360,8 +442,12 @@ export default function HistoriqueVentePage() {
                 <span className="font-medium text-green-700">{stats.total_poids_vendu.toFixed(1)} kg</span>
               </div>
               <div className="flex justify-between border-t border-green-200 pt-1 mt-1 font-semibold">
-                <span className="text-green-800">Total:</span>
+                <span className="text-green-800">Montant total:</span>
                 <span className="text-green-800">{formatPrice(stats.montant_bagages)}</span>
+              </div>
+              <div className="flex justify-between text-xs text-green-600 font-medium">
+                <span>Part Madarail total:</span>
+                <span>{formatPrice(stats.part_madarail_bagages)}</span>
               </div>
             </div>
           </div>
@@ -377,8 +463,12 @@ export default function HistoriqueVentePage() {
                 <span className="font-medium text-purple-700">{stats.total_colis}</span>
               </div>
               <div className="flex justify-between border-t border-purple-200 pt-1 mt-1 font-semibold">
-                <span className="text-purple-800">Total:</span>
+                <span className="text-purple-800">Montant total:</span>
                 <span className="text-purple-800">{formatPrice(stats.montant_colis)}</span>
+              </div>
+              <div className="flex justify-between text-xs text-purple-600 font-medium">
+                <span>Part Madarail total:</span>
+                <span>{formatPrice(stats.part_madarail_colis)}</span>
               </div>
             </div>
           </div>
@@ -457,12 +547,16 @@ export default function HistoriqueVentePage() {
                   </div>
                 ) : (
                   <>
-                    <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200 flex justify-between items-center">
+                    {/* Sous-total pour l'onglet voyageurs avec Part Madarail */}
+                    <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200 flex flex-wrap justify-between items-center gap-2">
                       <span className="text-sm font-medium text-blue-800">Total des tickets voyageurs:</span>
-                      <div className="space-x-4 text-sm">
+                      <div className="space-x-4 text-sm flex flex-wrap gap-2">
                         <span className="text-yellow-700">1ère: {formatPrice(stats.montant_1ere)}</span>
+                        <span className="text-xs text-yellow-600">(PM: {formatPrice(stats.part_madarail_1ere)})</span>
                         <span className="text-gray-700">2ème: {formatPrice(stats.montant_2eme)}</span>
+                        <span className="text-xs text-gray-600">(PM: {formatPrice(stats.part_madarail_2eme)})</span>
                         <span className="font-bold text-blue-700">Total: {formatPrice(stats.montant_voyageurs)}</span>
+                        <span className="text-xs font-medium text-blue-600">PM: {formatPrice(stats.part_madarail_voyageurs)}</span>
                       </div>
                     </div>
                     <div className="overflow-x-auto">
@@ -476,11 +570,12 @@ export default function HistoriqueVentePage() {
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Arrivée</th>
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Classe</th>
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Montant</th>
+                            <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Part Madarail</th>
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Date</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {ticketsVoyageurs.map((ticket) => (
+                          {ticketsVoyageurs.map(ticket => (
                             <tr key={ticket.id} className="hover:bg-gray-50 transition">
                               <td className="px-4 py-2 text-sm font-medium text-gray-900">{ticket.num_ticket}</td>
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.nom_voyageur}</td>
@@ -489,6 +584,7 @@ export default function HistoriqueVentePage() {
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.arrivee}</td>
                               <td className="px-4 py-2">{getClasseBadge(ticket.classe)}</td>
                               <td className="px-4 py-2 text-sm font-medium text-orange-700">{formatPrice(ticket.montant)}</td>
+                              <td className="px-4 py-2 text-sm font-medium text-indigo-600">{formatPrice(ticket.part_madarail)}</td>
                               <td className="px-4 py-2 text-sm text-gray-500">{formatDate(ticket.created_at)}</td>
                             </tr>
                           ))}
@@ -510,9 +606,13 @@ export default function HistoriqueVentePage() {
                   </div>
                 ) : (
                   <>
-                    <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200 flex justify-between items-center">
+                    {/* Sous-total pour l'onglet bagages avec Part Madarail */}
+                    <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200 flex flex-wrap justify-between items-center gap-2">
                       <span className="text-sm font-medium text-green-800">Total des tickets bagages:</span>
-                      <span className="font-bold text-green-700">{formatPrice(stats.montant_bagages)}</span>
+                      <div className="space-x-4 text-sm flex flex-wrap gap-2">
+                        <span className="font-bold text-green-700">Montant: {formatPrice(stats.montant_bagages)}</span>
+                        <span className="text-xs font-medium text-green-600">PM: {formatPrice(stats.part_madarail_bagages)}</span>
+                      </div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full">
@@ -525,11 +625,12 @@ export default function HistoriqueVentePage() {
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Poids</th>
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Volume</th>
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Montant</th>
+                            <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Part Madarail</th>
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Date</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {ticketsBagages.map((ticket) => (
+                          {ticketsBagages.map(ticket => (
                             <tr key={ticket.id} className="hover:bg-gray-50 transition">
                               <td className="px-4 py-2 text-sm font-medium text-gray-900">{ticket.num_ticket}</td>
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.nature}</td>
@@ -538,6 +639,7 @@ export default function HistoriqueVentePage() {
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.poids || '-'} kg</td>
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.volume || '-'} m³</td>
                               <td className="px-4 py-2 text-sm font-medium text-orange-700">{formatPrice(ticket.montant)}</td>
+                              <td className="px-4 py-2 text-sm font-medium text-indigo-600">{formatPrice(ticket.part_madarail)}</td>
                               <td className="px-4 py-2 text-sm text-gray-500">{formatDate(ticket.created_at)}</td>
                             </tr>
                           ))}
@@ -559,9 +661,13 @@ export default function HistoriqueVentePage() {
                   </div>
                 ) : (
                   <>
-                    <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200 flex justify-between items-center">
+                    {/* Sous-total pour l'onglet colis avec Part Madarail */}
+                    <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200 flex flex-wrap justify-between items-center gap-2">
                       <span className="text-sm font-medium text-purple-800">Total des tickets colis:</span>
-                      <span className="font-bold text-purple-700">{formatPrice(stats.montant_colis)}</span>
+                      <div className="space-x-4 text-sm flex flex-wrap gap-2">
+                        <span className="font-bold text-purple-700">Montant: {formatPrice(stats.montant_colis)}</span>
+                        <span className="text-xs font-medium text-purple-600">PM: {formatPrice(stats.part_madarail_colis)}</span>
+                      </div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full">
@@ -576,10 +682,11 @@ export default function HistoriqueVentePage() {
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Poids</th>
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Volume</th>
                             <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Montant</th>
+                            <th className="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Part Madarail</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {ticketsColis.map((ticket) => (
+                          {ticketsColis.map(ticket => (
                             <tr key={ticket.id} className="hover:bg-gray-50 transition">
                               <td className="px-4 py-2 text-sm font-medium text-gray-900">{ticket.num_ticket}</td>
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.nature}</td>
@@ -590,6 +697,7 @@ export default function HistoriqueVentePage() {
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.poids || '-'} kg</td>
                               <td className="px-4 py-2 text-sm text-gray-600">{ticket.volume || '-'} m³</td>
                               <td className="px-4 py-2 text-sm font-medium text-orange-700">{formatPrice(ticket.montant)}</td>
+                              <td className="px-4 py-2 text-sm font-medium text-indigo-600">{formatPrice(ticket.part_madarail)}</td>
                             </tr>
                           ))}
                         </tbody>
