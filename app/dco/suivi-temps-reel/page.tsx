@@ -11,7 +11,6 @@ import {
   PowerOff, RefreshCw, AlertTriangle
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
 
 import { 
   getVoyagesActifsSuivi, 
@@ -41,6 +40,7 @@ interface VenteParGare {
   gare_num: number;
   gare_code: string;
   gare_name: string;
+  commune_tutelle: string;
   quota_tickets: number;
   tickets_vendus: number;
   recette_tickets: number;
@@ -363,6 +363,7 @@ export default function DCOSuiviTempsReelPage() {
           </div>
         )}
 
+        {/* ✅ Résumé - 6 colonnes */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
           <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
             <p className="text-xs text-gray-500">Tickets vendus</p>
@@ -373,7 +374,7 @@ export default function DCOSuiviTempsReelPage() {
             <p className="text-2xl font-bold text-green-600">{formatPrice(selectedVoyage.total_recette_tickets)}</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-orange-500">
-            <p className="text-xs text-gray-500">Poids vendu</p>
+            <p className="text-xs text-gray-500">Poids vendu (kg équiv.)</p>
             <p className="text-2xl font-bold text-orange-600">{selectedVoyage.total_poids_vendu.toFixed(1)} kg</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-purple-500">

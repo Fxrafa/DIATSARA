@@ -508,6 +508,7 @@ export async function getVoyagesActifsSuivi() {
   return { voyages };
 }
 
+
 export async function getVoyageDetailsSuivi(voyageId: string) {
   try {
     const { data: voyageData, error: voyageError } = await supabaseAdmin
@@ -564,7 +565,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
 
     const { data: bagagesVendus, error: bagagesError } = await supabaseAdmin
       .from('ticket_bagage')
-      .select('gare_ref, poids, part_madarail')
+      .select('gare_ref, poids, volume, part_madarail')
       .eq('voyage_id', voyageId);
 
     if (bagagesError) {
@@ -573,7 +574,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
 
     const { data: colisVendus, error: colisError } = await supabaseAdmin
       .from('ticket_colis')
-      .select('gare_ref, poids, part_madarail')
+      .select('gare_ref, poids, volume, part_madarail')
       .eq('voyage_id', voyageId);
 
     if (colisError) {
@@ -622,10 +623,13 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       const ticketsVendusCount = tickets.length;
       const recetteTickets = tickets.reduce((sum, t) => sum + (t.part_madarail || 0), 0);
       
-      const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0), 0);
-      const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0), 0);
+      // ✅ Poids équivalent pour les bagages (poids + volume * 500)
+      const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0) + ((b.volume || 0) * 500), 0);
+      // ✅ Poids équivalent pour les colis (poids + volume * 500)
+      const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0) + ((c.volume || 0) * 500), 0);
       const poidsTotal = poidsBagages + poidsColis;
       
+      // ✅ Recette bagages (part_madarail)
       const recetteBagages = bagages.reduce((sum, b) => sum + (b.part_madarail || 0), 0);
       const recetteColis = colis.reduce((sum, c) => sum + (c.part_madarail || 0), 0);
       const recetteBagagesTotal = recetteBagages + recetteColis;
@@ -641,7 +645,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
         quota_tickets: quotaTicket?.quota || 0,
         tickets_vendus: ticketsVendusCount,
         recette_tickets: recetteTickets,
-        quota_bagages: quotaBagagesForGare, // ✅ Quota bagages pour cette gare (via sa commune)
+        quota_bagages: quotaBagagesForGare,
         poids_vendu: poidsTotal,
         recette_bagages: recetteBagagesTotal,
         recette_totale: recetteTickets + recetteBagagesTotal,
