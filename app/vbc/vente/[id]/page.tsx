@@ -196,12 +196,16 @@ export default function VentePage() {
     const departIndex = gareCodes.indexOf(voyage.gare_depart_detail?.code || '');
     const arriveeIndex = gareCodes.indexOf(voyage.gare_arrivee_detail?.code || '');
 
-    // Si la gare du VBC n'est pas sur le trajet, il ne peut pas vendre
-    if (currentIndex < Math.min(departIndex, arriveeIndex) || currentIndex > Math.max(departIndex, arriveeIndex)) {
+    // ✅ Si la gare du VBC n'est pas sur le trajet, il ne peut pas vendre
+    // Le trajet est entre departIndex et arriveeIndex
+    const startIndex = Math.min(departIndex, arriveeIndex);
+    const endIndex = Math.max(departIndex, arriveeIndex);
+    
+    if (currentIndex < startIndex || currentIndex > endIndex) {
       return [];
     }
 
-    // Sens impair (2131): direction MGA -> MNG (Nord)
+    // ✅ Sens impair (2131): direction MGA -> MNG (Nord)
     if (voyage.sens === '2131') {
       // Le VBC doit être avant l'arrivée
       if (currentIndex >= arriveeIndex) {
@@ -210,15 +214,19 @@ export default function VentePage() {
       // Gares après la gare du VBC jusqu'à l'arrivée (exclure la gare actuelle)
       return allGares.slice(currentIndex + 1, arriveeIndex + 1);
     } 
-    // Sens pair (2132): direction MNG -> MGA (Sud)
+    // ✅ Sens pair (2132): direction MNG -> MGA (Sud)
     else {
-      // Pour le sens pair (Sud), le VBC vend vers les gares avant lui (vers le Sud)
-      // Le VBC doit être après le départ
-      if (currentIndex <= departIndex) {
+      // Pour le sens pair, le train va vers le Sud (indices décroissants)
+      // Le VBC vend vers les gares avant lui dans l'ordre (indices plus petits)
+      // Exemple: VBC à BKV (15) vend vers ANV (14), RZK (13), ..., jusqu'à arriveeIndex (7)
+      
+      // Le VBC doit être après l'arrivée (dans l'ordre des indices)
+      if (currentIndex <= arriveeIndex) {
         return [];
       }
-      // Gares entre le départ et la gare du VBC (exclure la gare actuelle)
-      return allGares.slice(departIndex, currentIndex);
+      // Gares entre l'arrivée et la gare du VBC (exclure la gare actuelle)
+      // Pour le sens Sud, le VBC vend vers les gares plus petites que lui
+      return allGares.slice(arriveeIndex, currentIndex);
     }
   };
 

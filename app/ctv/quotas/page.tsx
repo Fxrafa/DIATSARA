@@ -16,7 +16,8 @@ import {
   Users, 
   Train,
   MapPin,
-  Loader2
+  Loader2,
+  ArrowLeftRight
 } from 'lucide-react';
 import { saveQuotaTickets, saveQuotaBagages } from '../actions';
 
@@ -29,12 +30,14 @@ interface Gare {
 
 interface QuotaTicket {
   gare_num: number;
-  quota: number;
+  quota_2131: number;
+  quota_2132: number;
 }
 
 interface QuotaBagage {
   commune_tutelle: string;
-  quota_tonnes: number;
+  quota_tonnes_2131: number;
+  quota_tonnes_2132: number;
 }
 
 type TabType = 'tickets' | 'bagages';
@@ -45,6 +48,7 @@ export default function QuotasPage() {
   const [gares, setGares] = useState<Gare[]>([]);
   const [communes, setCommunes] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('tickets');
+  const [sensTab, setSensTab] = useState<'2131' | '2132'>('2131');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,8 +59,10 @@ export default function QuotasPage() {
   const [quotaBagages, setQuotaBagages] = useState<QuotaBagage[]>([]);
 
   // Total des quotas
-  const [totalTickets, setTotalTickets] = useState(0);
-  const [totalBagages, setTotalBagages] = useState(0);
+  const [totalTickets2131, setTotalTickets2131] = useState(0);
+  const [totalTickets2132, setTotalTickets2132] = useState(0);
+  const [totalBagages2131, setTotalBagages2131] = useState(0);
+  const [totalBagages2132, setTotalBagages2132] = useState(0);
 
   useEffect(() => {
     fetchData();
@@ -85,10 +91,18 @@ export default function QuotasPage() {
         .order('gare_num');
 
       if (ticketsData && ticketsData.length > 0) {
-        setQuotaTickets(ticketsData.map(t => ({ gare_num: t.gare_num, quota: t.quota })));
+        setQuotaTickets(ticketsData.map(t => ({ 
+          gare_num: t.gare_num, 
+          quota_2131: t.quota_2131 || 50,
+          quota_2132: t.quota_2132 || 50
+        })));
       } else {
         // Initialiser avec 50 pour toutes les gares
-        const initialTickets = garesData?.map(g => ({ gare_num: g.num, quota: 50 })) || [];
+        const initialTickets = garesData?.map(g => ({ 
+          gare_num: g.num, 
+          quota_2131: 50,
+          quota_2132: 50
+        })) || [];
         setQuotaTickets(initialTickets);
       }
 
@@ -99,10 +113,18 @@ export default function QuotasPage() {
         .order('commune_tutelle');
 
       if (bagagesData && bagagesData.length > 0) {
-        setQuotaBagages(bagagesData.map(b => ({ commune_tutelle: b.commune_tutelle, quota_tonnes: b.quota_tonnes })));
+        setQuotaBagages(bagagesData.map(b => ({ 
+          commune_tutelle: b.commune_tutelle,
+          quota_tonnes_2131: b.quota_tonnes_2131 || 3,
+          quota_tonnes_2132: b.quota_tonnes_2132 || 3
+        })));
       } else {
         // Initialiser avec 3 tonnes pour toutes les communes
-        const initialBagages = communesUniques.map(c => ({ commune_tutelle: c, quota_tonnes: 3 }));
+        const initialBagages = communesUniques.map(c => ({ 
+          commune_tutelle: c,
+          quota_tonnes_2131: 3,
+          quota_tonnes_2132: 3
+        }));
         setQuotaBagages(initialBagages);
       }
 
@@ -116,29 +138,37 @@ export default function QuotasPage() {
 
   // Mettre à jour les totaux
   useEffect(() => {
-    const total = quotaTickets.reduce((sum, q) => sum + q.quota, 0);
-    setTotalTickets(total);
+    const total2131 = quotaTickets.reduce((sum, q) => sum + q.quota_2131, 0);
+    const total2132 = quotaTickets.reduce((sum, q) => sum + q.quota_2132, 0);
+    setTotalTickets2131(total2131);
+    setTotalTickets2132(total2132);
   }, [quotaTickets]);
 
   useEffect(() => {
-    const total = quotaBagages.reduce((sum, q) => sum + q.quota_tonnes, 0);
-    setTotalBagages(total);
+    const total2131 = quotaBagages.reduce((sum, q) => sum + q.quota_tonnes_2131, 0);
+    const total2132 = quotaBagages.reduce((sum, q) => sum + q.quota_tonnes_2132, 0);
+    setTotalBagages2131(total2131);
+    setTotalBagages2132(total2132);
   }, [quotaBagages]);
 
-  const handleTicketChange = (gareNum: number, value: number) => {
+  const handleTicketChange = (gareNum: number, sens: '2131' | '2132', value: number) => {
     const newValue = Math.max(0, value);
     setQuotaTickets(prev =>
       prev.map(q =>
-        q.gare_num === gareNum ? { ...q, quota: newValue } : q
+        q.gare_num === gareNum 
+          ? { ...q, [sens === '2131' ? 'quota_2131' : 'quota_2132']: newValue } 
+          : q
       )
     );
   };
 
-  const handleBagageChange = (commune: string, value: number) => {
+  const handleBagageChange = (commune: string, sens: '2131' | '2132', value: number) => {
     const newValue = Math.max(0, value);
     setQuotaBagages(prev =>
       prev.map(q =>
-        q.commune_tutelle === commune ? { ...q, quota_tonnes: newValue } : q
+        q.commune_tutelle === commune 
+          ? { ...q, [sens === '2131' ? 'quota_tonnes_2131' : 'quota_tonnes_2132']: newValue } 
+          : q
       )
     );
   };
@@ -149,7 +179,11 @@ export default function QuotasPage() {
     setSuccess(null);
 
     const result = await saveQuotaTickets(
-      quotaTickets.map(q => ({ gare_num: q.gare_num, quota: q.quota }))
+      quotaTickets.map(q => ({ 
+        gare_num: q.gare_num, 
+        quota_2131: q.quota_2131,
+        quota_2132: q.quota_2132
+      }))
     );
 
     if (result.error) {
@@ -166,7 +200,11 @@ export default function QuotasPage() {
     setSuccess(null);
 
     const result = await saveQuotaBagages(
-      quotaBagages.map(q => ({ commune_tutelle: q.commune_tutelle, quota_tonnes: q.quota_tonnes }))
+      quotaBagages.map(q => ({ 
+        commune_tutelle: q.commune_tutelle,
+        quota_tonnes_2131: q.quota_tonnes_2131,
+        quota_tonnes_2132: q.quota_tonnes_2132
+      }))
     );
 
     if (result.error) {
@@ -244,8 +282,8 @@ export default function QuotasPage() {
         </div>
       )}
 
-      {/* Switch Tabs */}
-      <div className="bg-white rounded-xl shadow-sm mb-6 p-1 flex gap-1">
+      {/* Switch Tabs - Type de quota */}
+      <div className="bg-white rounded-xl shadow-sm mb-4 p-1 flex gap-1">
         <button
           onClick={() => setActiveTab('tickets')}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition ${
@@ -270,25 +308,63 @@ export default function QuotasPage() {
         </button>
       </div>
 
+      {/* Switch Tabs - Sens */}
+      <div className="bg-gray-100 rounded-xl shadow-sm mb-6 p-1 flex gap-1 max-w-md">
+        <button
+          onClick={() => setSensTab('2131')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
+            sensTab === '2131'
+              ? 'bg-blue-600 text-white shadow-lg'
+              : 'text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          <ArrowLeftRight className="h-4 w-4" />
+          Sens 2131 (Impair)
+        </button>
+        <button
+          onClick={() => setSensTab('2132')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
+            sensTab === '2132'
+              ? 'bg-blue-600 text-white shadow-lg'
+              : 'text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          <ArrowLeftRight className="h-4 w-4" />
+          Sens 2132 (Pair)
+        </button>
+      </div>
+
       {/* Total indicateur - en lecture seule */}
       <div className="bg-blue-50 rounded-lg p-4 border border-blue-200 mb-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2 text-blue-800">
             {activeTab === 'tickets' ? (
               <>
                 <Users className="h-5 w-5" />
-                <span>Total quotas attribués : <strong>{totalTickets}</strong> places</span>
+                <span>
+                  Total quotas attribués : 
+                  <strong className="ml-1">
+                    {sensTab === '2131' ? totalTickets2131 : totalTickets2132}
+                  </strong>
+                  {sensTab === '2131' ? ' (2131)' : ' (2132)'}
+                </span>
               </>
             ) : (
               <>
                 <Package className="h-5 w-5" />
-                <span>Total quotas attribués : <strong>{totalBagages}</strong> tonnes</span>
+                <span>
+                  Total quotas attribués : 
+                  <strong className="ml-1">
+                    {sensTab === '2131' ? totalBagages2131 : totalBagages2132}
+                  </strong>
+                  tonnes {sensTab === '2131' ? ' (2131)' : ' (2132)'}
+                </span>
               </>
             )}
           </div>
           <div className="text-sm text-gray-500">
             {activeTab === 'tickets' ? (
-              <span>Répartis sur 25 gares</span>
+              <span>Répartis sur {gares.length} gares</span>
             ) : (
               <span>Répartis sur {communes.length} communes</span>
             )}
@@ -302,7 +378,7 @@ export default function QuotasPage() {
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Ticket className="h-5 w-5 text-green-600" />
-              Quotas par gare
+              Quotas par gare - Sens {sensTab}
             </h2>
             <button
               onClick={handleSaveTickets}
@@ -320,12 +396,13 @@ export default function QuotasPage() {
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Gare</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Commune</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Quota</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Quota {sensTab}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {gares.map((gare) => {
                   const quota = quotaTickets.find(q => q.gare_num === gare.num);
+                  const currentQuota = sensTab === '2131' ? quota?.quota_2131 || 0 : quota?.quota_2132 || 0;
                   return (
                     <tr key={gare.num} className="hover:bg-gray-50 transition">
                       <td className="px-4 py-2 text-sm text-gray-900">{gare.gare}</td>
@@ -335,8 +412,8 @@ export default function QuotasPage() {
                         <input
                           type="number"
                           min="0"
-                          value={quota?.quota || 0}
-                          onChange={(e) => handleTicketChange(gare.num, parseInt(e.target.value) || 0)}
+                          value={currentQuota}
+                          onChange={(e) => handleTicketChange(gare.num, sensTab, parseInt(e.target.value) || 0)}
                           className="w-24 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-right text-gray-900 font-medium"
                         />
                       </td>
@@ -355,7 +432,7 @@ export default function QuotasPage() {
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Package className="h-5 w-5 text-orange-600" />
-              Quotas par commune
+              Quotas par commune - Sens {sensTab}
             </h2>
             <button
               onClick={handleSaveBagages}
@@ -372,13 +449,16 @@ export default function QuotasPage() {
                 <tr className="bg-gray-50">
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Commune tutelle</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Gares associées</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Quota (tonnes)</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Quota (tonnes) {sensTab}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {communes.map((commune) => {
                   const garesAssociees = gares.filter(g => g.commune_tutelle === commune);
                   const quota = quotaBagages.find(q => q.commune_tutelle === commune);
+                  const currentQuota = sensTab === '2131' 
+                    ? quota?.quota_tonnes_2131 || 0 
+                    : quota?.quota_tonnes_2132 || 0;
                   return (
                     <tr key={commune} className="hover:bg-gray-50 transition">
                       <td className="px-4 py-2 text-sm text-gray-900 font-medium">{commune}</td>
@@ -390,8 +470,8 @@ export default function QuotasPage() {
                           type="number"
                           step="0.1"
                           min="0"
-                          value={quota?.quota_tonnes || 0}
-                          onChange={(e) => handleBagageChange(commune, parseFloat(e.target.value) || 0)}
+                          value={currentQuota}
+                          onChange={(e) => handleBagageChange(commune, sensTab, parseFloat(e.target.value) || 0)}
                           className="w-24 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-right text-gray-900 font-medium"
                         />
                       </td>

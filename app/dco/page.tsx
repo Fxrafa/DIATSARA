@@ -1,9 +1,12 @@
+ 
+/* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Calendar, Clock, Train, Users, Package, Ticket, Eye } from 'lucide-react';
+import { Calendar, Clock, Train, Ticket, Eye, Users, Package } from 'lucide-react';
 import { getVoyagesActifsWithQuotas } from './actions';
+import { supabase } from '@/lib/supabaseClient';
 
 interface Voyage {
   id: string;
@@ -30,16 +33,26 @@ export default function DCOHomePage() {
   const [voyagesActifs, setVoyagesActifs] = useState<VoyageWithQuotas[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
-    total: 0,
     actifs: 0,
     termines: 0,
-    placesAttribuees: 0,
-    tonnesAttribuees: 0,
   });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      // Récupérer les voyages avec quotas via Server Action
+  // Fonction pour récupérer les données
+  const fetchData = async () => {
+    setLoading(true);
+
+    try {
+      // Récupérer le nombre de voyages terminés
+      const { count: terminesCount, error: terminesError } = await supabase
+        .from('voyages')
+        .select('*', { count: 'exact', head: true })
+        .eq('statut', 'termine');
+
+      if (terminesError) {
+        console.error('Erreur voyages terminés:', terminesError);
+      }
+
+      // Récupérer les voyages actifs avec quotas
       const result = await getVoyagesActifsWithQuotas();
       
       if (result.error) {
@@ -48,28 +61,21 @@ export default function DCOHomePage() {
         return;
       }
 
-      if (result.voyages) {
-        setVoyagesActifs(result.voyages);
+      // Mettre à jour les états
+      setVoyagesActifs(result.voyages || []);
+      setStats({
+        actifs: result.voyages?.length || 0,
+        termines: terminesCount || 0,
+      });
 
-        // Calculer les statistiques
-        let placesAttribuees = 0;
-        let tonnesAttribuees = 0;
-        result.voyages.forEach(v => {
-          placesAttribuees += v.total_places_attribuees;
-          tonnesAttribuees += v.total_tonnes_attribuees;
-        });
+    } catch (err) {
+      console.error('Erreur:', err);
+    }
 
-        setStats(prev => ({
-          ...prev,
-          placesAttribuees,
-          tonnesAttribuees,
-          actifs: result.voyages.length,
-        }));
-      }
+    setLoading(false);
+  };
 
-      setLoading(false);
-    };
-
+  useEffect(() => {
     fetchData();
   }, []);
 
@@ -111,8 +117,8 @@ export default function DCOHomePage() {
       <h1 className="text-3xl font-bold text-gray-900 mb-2">Tableau de bord DCO</h1>
       <p className="text-gray-600 mb-8">Gestion des voyages et opérations</p>
 
-      {/* Statistiques */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      {/* Statistiques - uniquement voyages actifs et terminés */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 max-w-md">
         <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-green-500">
           <div className="flex items-center justify-between">
             <div>
@@ -129,24 +135,6 @@ export default function DCOHomePage() {
               <p className="text-2xl font-bold text-gray-600">{stats.termines}</p>
             </div>
             <Calendar className="h-8 w-8 text-gray-500 opacity-50" />
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-blue-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Places attribuées</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.placesAttribuees}</p>
-            </div>
-            <Users className="h-8 w-8 text-blue-500 opacity-50" />
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-orange-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Fret attribué</p>
-              <p className="text-2xl font-bold text-orange-600">{stats.tonnesAttribuees}T</p>
-            </div>
-            <Package className="h-8 w-8 text-orange-500 opacity-50" />
           </div>
         </div>
       </div>
@@ -177,7 +165,7 @@ export default function DCOHomePage() {
           </p>
           <div className="mt-4 flex items-center gap-2 text-sm text-gray-500">
             <Ticket className="h-4 w-4" />
-            <span>Total places attribuées: {stats.placesAttribuees}</span>
+            <span>{stats.actifs} voyage(s) actif(s)</span>
           </div>
         </div>
       </div>

@@ -90,73 +90,61 @@ export async function getVBCData() {
     .select('*');
 
   // Créer des maps pour un accès rapide
-  const quotaTicketsMap = new Map<number, number>();
+  const quotaTicketsMap = new Map<number, { quota_2131: number; quota_2132: number }>();
   quotaTicketsGlobal?.forEach(q => {
-    quotaTicketsMap.set(q.gare_num, q.quota);
+    quotaTicketsMap.set(q.gare_num, {
+      quota_2131: q.quota_2131 || 0,
+      quota_2132: q.quota_2132 || 0,
+    });
   });
 
-  const quotaBagagesMap = new Map<string, number>();
+  const quotaBagagesMap = new Map<string, { quota_tonnes_2131: number; quota_tonnes_2132: number }>();
   quotaBagagesGlobal?.forEach(q => {
-    quotaBagagesMap.set(q.commune_tutelle, q.quota_tonnes);
+    quotaBagagesMap.set(q.commune_tutelle, {
+      quota_tonnes_2131: q.quota_tonnes_2131 || 0,
+      quota_tonnes_2132: q.quota_tonnes_2132 || 0,
+    });
+  });
+
+  // ✅ Récupérer toutes les gares pour connaître les gares de la même commune
+  const { data: allGares } = await supabaseAdmin
+    .from('gare')
+    .select('num, commune_tutelle');
+
+  const garesParCommune = new Map<string, number[]>();
+  allGares?.forEach(g => {
+    const gares = garesParCommune.get(g.commune_tutelle) || [];
+    gares.push(g.num);
+    garesParCommune.set(g.commune_tutelle, gares);
   });
 
   const voyagesWithQuotas = await Promise.all(
     (voyages || []).map(async (voyage) => {
       let quotaTickets: any[] = [];
       let quotaBagages: any[] = [];
+      
+      const sens = voyage.sens;
+      const gareRef = profile.gare_ref;
+      const commune = gare?.commune_tutelle;
+      
+      // ✅ Récupérer toutes les gares de la commune
+      const garesDeLaCommune = commune ? garesParCommune.get(commune) || [] : [];
 
-      // ✅ Quota ticket pour cette gare (global)
-      if (profile.gare_ref) {
-        const quota = quotaTicketsMap.get(profile.gare_ref) || 0;
-        if (quota > 0) {
-          quotaTickets = [{ 
-            id: `ticket-${profile.gare_ref}`, 
-            gare_num: profile.gare_ref, 
-            quota: quota,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }];
-        }
-      }
-
-      // ✅ Quota bagage pour cette commune (global)
-      if (gare?.commune_tutelle) {
-        const quota = quotaBagagesMap.get(gare.commune_tutelle) || 0;
-        if (quota > 0) {
-          quotaBagages = [{ 
-            id: `bagage-${gare.commune_tutelle}`,
-            commune_tutelle: gare.commune_tutelle, 
-            quota_tonnes: quota,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }];
-        }
-      }
-
-      // Récupérer les tickets déjà vendus pour ce voyage
-      const { data: ticketsVendus } = await supabaseAdmin
-        .from('ticket_voyageur')
-        .select('*')
-        .eq('voyage_id', voyage.id)
-        .eq('gare_ref', profile.gare_ref);
-
-      const totalTicketsVendus = ticketsVendus?.length || 0;
-
-      // ✅ Récupérer les bagages vendus (poids réel)
+      // ✅ Récupérer TOUS les tickets bagages vendus pour toutes les gares de la commune pour ce voyage
       const { data: bagagesVendus } = await supabaseAdmin
         .from('ticket_bagage')
-        .select('poids, volume')
+        .select('poids, volume, gare_ref')
         .eq('voyage_id', voyage.id)
-        .eq('gare_ref', profile.gare_ref);
+        .in('gare_ref', garesDeLaCommune);
 
-      // ✅ Récupérer les colis vendus (poids réel)
+      // ✅ Récupérer TOUS les tickets colis vendus pour toutes les gares de la commune pour ce voyage
       const { data: colisVendus } = await supabaseAdmin
         .from('ticket_colis')
-        .select('poids, volume')
+        .select('poids, volume, gare_ref')
         .eq('voyage_id', voyage.id)
-        .eq('gare_ref', profile.gare_ref);
+        .in('gare_ref', garesDeLaCommune);
 
-      // ✅ Calcul du poids équivalent (poids + volume * 500) pour le quota
+      // ✅ Calcul du poids équivalent total vendu dans la commune (pour ce voyage)
       const poidsEquivalentBagages = bagagesVendus?.reduce((sum, b) => {
         return sum + (b.poids || 0) + ((b.volume || 0) * 500);
       }, 0) || 0;
@@ -165,7 +153,78 @@ export async function getVBCData() {
         return sum + (c.poids || 0) + ((c.volume || 0) * 500);
       }, 0) || 0;
 
-      const totalBagagesVendus = poidsEquivalentBagages + poidsEquivalentColis;
+      const totalVenduCommune = poidsEquivalentBagages + poidsEquivalentColis;
+
+      // ✅ Récupérer le quota total de la commune (initial)
+      const quotaData = commune ? quotaBagagesMap.get(commune) : null;
+      let quotaTotalCommune = 0;
+      if (quotaData) {
+        quotaTotalCommune = sens === '2131' ? quotaData.quota_tonnes_2131 : quotaData.quota_tonnes_2132;
+      }
+
+      // ✅ Stocker le quota INITIAL (pas le restant)
+      // C'est important pour que le dashboard affiche correctement : Total = 5, Vendus = 1, Reste = 4
+      if (commune && quotaTotalCommune > 0) {
+        quotaBagages = [{ 
+          id: `bagage-${commune}`,
+          commune_tutelle: commune, 
+          quota_tonnes: quotaTotalCommune, // ← QUOTA INITIAL (pas restant)
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }];
+      }
+
+      // ✅ Quota ticket pour cette gare selon le sens du voyage
+      if (gareRef) {
+        const quotaDataTicket = quotaTicketsMap.get(gareRef);
+        let quota = 0;
+        if (quotaDataTicket) {
+          quota = sens === '2131' ? quotaDataTicket.quota_2131 : quotaDataTicket.quota_2132;
+        }
+        
+        if (quota > 0) {
+          quotaTickets = [{ 
+            id: `ticket-${gareRef}`, 
+            gare_num: gareRef, 
+            quota: quota,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }];
+        }
+      }
+
+      // ✅ Récupérer les tickets déjà vendus pour ce voyage (pour cette gare uniquement)
+      const { data: ticketsVendus } = await supabaseAdmin
+        .from('ticket_voyageur')
+        .select('*')
+        .eq('voyage_id', voyage.id)
+        .eq('gare_ref', gareRef);
+
+      const totalTicketsVendus = ticketsVendus?.length || 0;
+
+      // ✅ Récupérer les bagages vendus pour cette gare (pour le poids vendu individuel)
+      const { data: bagagesVendusGare } = await supabaseAdmin
+        .from('ticket_bagage')
+        .select('poids, volume')
+        .eq('voyage_id', voyage.id)
+        .eq('gare_ref', gareRef);
+
+      const { data: colisVendusGare } = await supabaseAdmin
+        .from('ticket_colis')
+        .select('poids, volume')
+        .eq('voyage_id', voyage.id)
+        .eq('gare_ref', gareRef);
+
+      // ✅ Calcul du poids équivalent vendu par cette gare
+      const poidsEquivalentBagagesGare = bagagesVendusGare?.reduce((sum, b) => {
+        return sum + (b.poids || 0) + ((b.volume || 0) * 500);
+      }, 0) || 0;
+
+      const poidsEquivalentColisGare = colisVendusGare?.reduce((sum, c) => {
+        return sum + (c.poids || 0) + ((c.volume || 0) * 500);
+      }, 0) || 0;
+
+      const totalBagagesVendusGare = poidsEquivalentBagagesGare + poidsEquivalentColisGare;
 
       const totalTickets = quotaTickets.reduce((sum, q) => sum + q.quota, 0);
       const totalBagages = quotaBagages.reduce((sum, q) => sum + (q.quota_tonnes * 1000), 0);
@@ -192,7 +251,7 @@ export async function getVBCData() {
         total_tickets: totalTickets,
         total_bagages: totalBagages,
         tickets_vendus: totalTicketsVendus,
-        bagages_vendus: totalBagagesVendus,
+        bagages_vendus: totalBagagesVendusGare,
         places_1ere: places_1ere,
         places_2eme: places_2eme,
       };
@@ -205,6 +264,7 @@ export async function getVBCData() {
     voyages: voyagesWithQuotas,
   };
 }
+
 
 export async function getVoyageDetails(voyageId: string) {
   const { data: voyage, error } = await supabaseAdmin
@@ -258,17 +318,23 @@ export async function getVoyageDetails(voyageId: string) {
   let places_2eme = 0;
 
   if (profile?.gare_ref) {
-    // 1. ✅ Quotas tickets GLOBAUX (sans voyage_id)
+    const sens = voyage.sens;
+    
+    // ✅ Quotas tickets
     const { data: tickets } = await supabaseAdmin
       .from('quota_tickets')
-      .select('quota')
+      .select('quota_2131, quota_2132')
       .eq('gare_num', profile.gare_ref);
 
     if (tickets && tickets.length > 0) {
-      quotaTicketsTotal = tickets[0].quota;
+      if (sens === '2131') {
+        quotaTicketsTotal = tickets[0].quota_2131 || 0;
+      } else {
+        quotaTicketsTotal = tickets[0].quota_2132 || 0;
+      }
     }
 
-    // 2. Tickets vendus
+    // ✅ Tickets vendus
     const { data: vendus } = await supabaseAdmin
       .from('ticket_voyageur')
       .select('classe')
@@ -277,7 +343,6 @@ export async function getVoyageDetails(voyageId: string) {
 
     ticketsVendus = vendus?.length || 0;
 
-    // Calcul des places par classe
     if (vendus) {
       const tickets1ere = vendus.filter((t: any) => t.classe === '1ere');
       const tickets2eme = vendus.filter((t: any) => t.classe === '2eme');
@@ -289,7 +354,7 @@ export async function getVoyageDetails(voyageId: string) {
       places_2eme = Math.max(0, places_2eme);
     }
 
-    // 3. ✅ Quotas bagages GLOBAUX (sans voyage_id)
+    // ✅ Quotas bagages - commun pour toutes les gares de la commune
     const { data: gareData } = await supabaseAdmin
       .from('gare')
       .select('commune_tutelle')
@@ -299,27 +364,37 @@ export async function getVoyageDetails(voyageId: string) {
     if (gareData) {
       const { data: bagages } = await supabaseAdmin
         .from('quota_bagages')
-        .select('quota_tonnes')
+        .select('quota_tonnes_2131, quota_tonnes_2132')
         .eq('commune_tutelle', gareData.commune_tutelle);
 
+      let quotaTotalCommune = 0;
       if (bagages && bagages.length > 0) {
-        quotaBagagesTotal = bagages[0].quota_tonnes * 1000;
+        quotaTotalCommune = sens === '2131' 
+          ? bagages[0].quota_tonnes_2131 || 0 
+          : bagages[0].quota_tonnes_2132 || 0;
       }
 
-      // 4. ✅ Poids vendu (bagages + colis) en KG équivalent
+      // ✅ Récupérer toutes les gares de la commune
+      const { data: allGares } = await supabaseAdmin
+        .from('gare')
+        .select('num')
+        .eq('commune_tutelle', gareData.commune_tutelle);
+
+      const garesDeLaCommune = allGares?.map(g => g.num) || [];
+
+      // ✅ Récupérer le poids TOTAL vendu dans la commune (toutes les gares)
       const { data: bagagesVendusData } = await supabaseAdmin
         .from('ticket_bagage')
         .select('poids, volume')
         .eq('voyage_id', voyageId)
-        .eq('gare_ref', profile.gare_ref);
+        .in('gare_ref', garesDeLaCommune);
 
       const { data: colisVendusData } = await supabaseAdmin
         .from('ticket_colis')
         .select('poids, volume')
         .eq('voyage_id', voyageId)
-        .eq('gare_ref', profile.gare_ref);
+        .in('gare_ref', garesDeLaCommune);
 
-      // ✅ Calcul du poids équivalent (poids + volume * 500)
       const totalPoidsBagages = bagagesVendusData?.reduce((sum, b) => {
         return sum + (b.poids || 0) + ((b.volume || 0) * 500);
       }, 0) || 0;
@@ -327,8 +402,15 @@ export async function getVoyageDetails(voyageId: string) {
       const totalPoidsColis = colisVendusData?.reduce((sum, c) => {
         return sum + (c.poids || 0) + ((c.volume || 0) * 500);
       }, 0) || 0;
-      
-      bagagesVendus = totalPoidsBagages + totalPoidsColis;
+
+      const totalVenduCommune = totalPoidsBagages + totalPoidsColis;
+
+      // ✅ bagages_max = quota TOTAL de la commune (pour afficher "X / Y")
+      quotaBagagesTotal = quotaTotalCommune * 1000;
+
+      // ✅ bagages_vendus = poids TOTAL vendu dans la commune (toutes les gares)
+      // La page de vente utilise getBagageRestant() = bagages_max - bagages_vendus
+      bagagesVendus = totalVenduCommune;
     }
   }
 
@@ -394,7 +476,6 @@ export async function getTarifBagageColis(unite: string) {
 }
 
 export async function getTicketsVendus(voyageId: string, gareRef: number) {
-  // Récupérer les tickets voyageurs
   const { data: voyageurs, error: voyageursError } = await supabaseAdmin
     .from('ticket_voyageur')
     .select('*')
@@ -406,7 +487,6 @@ export async function getTicketsVendus(voyageId: string, gareRef: number) {
     console.error('Erreur tickets voyageurs:', voyageursError);
   }
 
-  // Récupérer les tickets bagages
   const { data: bagages, error: bagagesError } = await supabaseAdmin
     .from('ticket_bagage')
     .select('*')
@@ -418,7 +498,6 @@ export async function getTicketsVendus(voyageId: string, gareRef: number) {
     console.error('Erreur tickets bagages:', bagagesError);
   }
 
-  // Récupérer les tickets colis
   const { data: colis, error: colisError } = await supabaseAdmin
     .from('ticket_colis')
     .select('*')

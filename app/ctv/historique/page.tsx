@@ -29,13 +29,15 @@ interface Voyage {
 
 interface QuotaTicket {
   gare_num: number;
-  quota: number;
+  quota_2131: number;
+  quota_2132: number;
   gare_detail?: { code: string; gare: string };
 }
 
 interface QuotaBagage {
   commune_tutelle: string;
-  quota_tonnes: number;
+  quota_tonnes_2131: number;
+  quota_tonnes_2132: number;
 }
 
 interface VenteParGare {
@@ -97,7 +99,6 @@ export default function CTVHistoriquePage() {
     setError(null);
 
     try {
-      // ✅ Utiliser getVoyageDetailsHistorique (alias de getVoyageHistoriqueDetailsCTV)
       const result = await getVoyageDetailsHistorique(voyageId);
       
       if (result.error) {
@@ -172,6 +173,11 @@ export default function CTVHistoriquePage() {
   }
 
   if (selectedVoyage) {
+    // ✅ Récupérer le bon quota selon le sens du voyage
+    const sens = selectedVoyage.sens;
+    const quotaTicketColumn = sens === '2131' ? 'quota_2131' : 'quota_2132';
+    const quotaBagageColumn = sens === '2131' ? 'quota_tonnes_2131' : 'quota_tonnes_2132';
+    
     const recetteTotale = selectedVoyage.total_part_madarail + selectedVoyage.total_part_madarail_bagage;
 
     return (
@@ -264,8 +270,13 @@ export default function CTVHistoriquePage() {
                 <tbody className="divide-y divide-gray-200">
                   {selectedVoyage.ventes_par_gare.map((gare) => {
                     const quotaTicket = selectedVoyage.quota_tickets.find(q => q.gare_num === gare.gare_num);
+                    const quotaBagage = selectedVoyage.quota_bagages.find(q => q.commune_tutelle === gare.commune_tutelle);
                     const isExpanded = expandedRows.has(gare.gare_code);
                     const recetteGare = gare.part_madarail_total + gare.part_madarail_bagage_total;
+                    
+                    // ✅ Récupérer le bon quota selon le sens
+                    const ticketQuota = quotaTicket ? quotaTicket[quotaTicketColumn] || 0 : 0;
+                    const bagageQuota = quotaBagage ? quotaBagage[quotaBagageColumn] || 0 : 0;
                     
                     return (
                       <Fragment key={gare.gare_num}>
@@ -274,7 +285,7 @@ export default function CTVHistoriquePage() {
                             {gare.gare_code} - {gare.gare_name}
                           </td>
                           <td className="px-4 py-3 text-center text-sm text-blue-600 font-medium">
-                            {quotaTicket?.quota || 0}
+                            {ticketQuota}
                           </td>
                           <td className="px-4 py-3 text-center text-sm text-gray-900 font-medium">
                             {gare.tickets_vendus}
@@ -283,10 +294,7 @@ export default function CTVHistoriquePage() {
                             {formatPrice(gare.part_madarail_total)}
                           </td>
                           <td className="px-4 py-3 text-center text-sm text-orange-600 font-medium">
-                            {selectedVoyage.quota_bagages.length > 0 ? 
-                              `${selectedVoyage.quota_bagages.reduce((sum, q) => sum + q.quota_tonnes, 0)}T` : 
-                              '-'
-                            }
+                            {bagageQuota > 0 ? `${bagageQuota}T` : '-'}
                           </td>
                           <td className="px-4 py-3 text-center text-sm text-orange-600 font-medium">
                             {gare.poids_vendu.toFixed(1)} kg
@@ -320,7 +328,7 @@ export default function CTVHistoriquePage() {
                                   <div className="space-y-1 text-sm">
                                     <div className="flex justify-between">
                                       <span className="text-gray-600">Quota:</span>
-                                      <span className="font-medium text-blue-600">{quotaTicket?.quota || 0}</span>
+                                      <span className="font-medium text-blue-600">{ticketQuota}</span>
                                     </div>
                                     <div className="flex justify-between">
                                       <span className="text-gray-600">Vendus:</span>
@@ -342,12 +350,7 @@ export default function CTVHistoriquePage() {
                                   <div className="space-y-1 text-sm">
                                     <div className="flex justify-between">
                                       <span className="text-gray-600">Quota bagages:</span>
-                                      <span className="font-medium text-orange-600">
-                                        {selectedVoyage.quota_bagages.length > 0 ? 
-                                          `${selectedVoyage.quota_bagages.reduce((sum, q) => sum + q.quota_tonnes, 0)}T` : 
-                                          '-'
-                                        }
-                                      </span>
+                                      <span className="font-medium text-orange-600">{bagageQuota > 0 ? `${bagageQuota}T` : '-'}</span>
                                     </div>
                                     <div className="flex justify-between">
                                       <span className="text-gray-600">Poids vendu:</span>
@@ -391,7 +394,7 @@ export default function CTVHistoriquePage() {
                   <tr>
                     <td className="px-4 py-3 text-sm font-bold text-gray-900">TOTAL</td>
                     <td className="px-4 py-3 text-center text-sm font-bold text-blue-600">
-                      {selectedVoyage.quota_tickets.reduce((sum, q) => sum + q.quota, 0)}
+                      {selectedVoyage.quota_tickets.reduce((sum, q) => sum + (q[quotaTicketColumn] || 0), 0)}
                     </td>
                     <td className="px-4 py-3 text-center text-sm font-bold text-gray-900">
                       {selectedVoyage.total_tickets_vendus}
@@ -400,7 +403,7 @@ export default function CTVHistoriquePage() {
                       {formatPrice(selectedVoyage.total_part_madarail)}
                     </td>
                     <td className="px-4 py-3 text-center text-sm font-bold text-orange-600">
-                      {selectedVoyage.quota_bagages.reduce((sum, q) => sum + q.quota_tonnes, 0)}T
+                      {selectedVoyage.quota_bagages.reduce((sum, q) => sum + (q[quotaBagageColumn] || 0), 0)}T
                     </td>
                     <td className="px-4 py-3 text-center text-sm font-bold text-orange-600">
                       {selectedVoyage.total_poids_vendu.toFixed(1)} kg

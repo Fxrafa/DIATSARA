@@ -347,12 +347,6 @@ export default function VBCPage() {
                       <span>Vendus</span>
                       <span className="font-medium">{(bagages_vendus / 1000).toFixed(1)}T</span>
                     </div>
-                    <div className="flex justify-between text-sm  text-gray-500">
-                      <span>Restants</span>
-                      <span className={`${total_bagages - bagages_vendus > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {((total_bagages - bagages_vendus) / 1000).toFixed(1)}T
-                      </span>
-                    </div>
                   </div>
                     </div>
 
@@ -372,22 +366,6 @@ export default function VBCPage() {
                         </div>
                         <span className="text-xs text-gray-500 mt-1">
                           {total_tickets > 0 ? Math.round((tickets_vendus / total_tickets) * 100) : 0}%
-                        </span>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Taux d'occupation fret</p>
-                        <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
-                          <div 
-                            className={`h-2 rounded-full transition-all ${
-                              total_bagages > 0 && bagages_vendus / total_bagages > 0.7 
-                                ? 'bg-green-500' 
-                                : 'bg-orange-500'
-                            }`}
-                            style={{ width: `${total_bagages > 0 ? Math.min((bagages_vendus / total_bagages) * 100, 100) : 0}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-500 mt-1">
-                          {total_bagages > 0 ? Math.round((bagages_vendus / total_bagages) * 100) : 0}%
                         </span>
                       </div>
                     </div>

@@ -539,12 +539,13 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       return { error: 'Voyage non trouvé' };
     }
 
-    // ✅ Récupérer les quotas tickets GLOBAUX (sans voyage_id)
+    // ✅ Récupérer les quotas tickets GLOBAUX
     const { data: quotaTickets, error: quotaTicketError } = await supabaseAdmin
       .from('quota_tickets')
       .select(`
         gare_num,
-        quota,
+        quota_2131,
+        quota_2132,
         gare_detail:gare_num(code, gare)
       `);
 
@@ -552,22 +553,35 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       return { error: 'Erreur lors du chargement des quotas tickets' };
     }
 
-    // ✅ Récupérer les quotas bagages GLOBAUX (sans voyage_id)
+    // ✅ Récupérer les quotas bagages GLOBAUX (par commune)
     const { data: quotaBagages, error: quotaBagageError } = await supabaseAdmin
       .from('quota_bagages')
-      .select('commune_tutelle, quota_tonnes');
+      .select('commune_tutelle, quota_tonnes_2131, quota_tonnes_2132');
 
     if (quotaBagageError) {
       return { error: 'Erreur lors du chargement des quotas bagages' };
     }
 
-    // Créer un map commune -> quota_tonnes pour un accès rapide
-    const quotaBagagesMap = new Map<string, number>();
+    // ✅ Créer un map commune -> quota (selon le sens)
+    const quotaBagagesMap = new Map<string, { quota_tonnes_2131: number; quota_tonnes_2132: number }>();
     quotaBagages?.forEach(q => {
-      quotaBagagesMap.set(q.commune_tutelle, q.quota_tonnes);
+      quotaBagagesMap.set(q.commune_tutelle, {
+        quota_tonnes_2131: q.quota_tonnes_2131 || 0,
+        quota_tonnes_2132: q.quota_tonnes_2132 || 0,
+      });
     });
 
-    // Récupérer les tickets voyageurs vendus
+    // Récupérer toutes les gares
+    const { data: allGares, error: garesError } = await supabaseAdmin
+      .from('gare')
+      .select('num, code, gare, commune_tutelle')
+      .order('num');
+
+    if (garesError) {
+      return { error: 'Erreur lors du chargement des gares' };
+    }
+
+    // Récupérer les tickets vendus
     const { data: ticketsVendus, error: ticketsError } = await supabaseAdmin
       .from('ticket_voyageur')
       .select('gare_ref, part_madarail')
@@ -606,33 +620,33 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
 
     const garesDesactivees = new Set(ventesDesactivees?.map(v => v.gare_num) || []);
 
-    // ✅ Récupérer toutes les gares AVEC leur commune_tutelle
-    const { data: allGares, error: garesError } = await supabaseAdmin
-      .from('gare')
-      .select('num, code, gare, commune_tutelle')
-      .order('num');
-
-    if (garesError) {
-      return { error: 'Erreur lors du chargement des gares' };
-    }
+    // ✅ Créer un map pour les quotas tickets
+    const quotaTicketsMap = new Map<number, { quota_2131: number; quota_2132: number }>();
+    quotaTickets?.forEach(q => {
+      quotaTicketsMap.set(q.gare_num, {
+        quota_2131: q.quota_2131 || 0,
+        quota_2132: q.quota_2132 || 0,
+      });
+    });
 
     const gareCodes = allGares.map(g => g.num);
     const departIndex = gareCodes.indexOf(voyageData.gare_depart);
     const arriveeIndex = gareCodes.indexOf(voyageData.gare_arrivee);
     
-    // ✅ Filtrer les gares entre le départ et l'arrivée (EXCLURE l'arrivée)
     let garesFiltrees = allGares;
     if (voyageData.sens === '2131') {
-      // Sens Nord: du départ vers l'arrivée (exclure l'arrivée)
       garesFiltrees = allGares.slice(departIndex, arriveeIndex);
     } else {
-      // Sens Sud: de l'arrivée vers le départ (exclure l'arrivée)
       garesFiltrees = allGares.slice(arriveeIndex + 1, departIndex + 1);
     }
 
-    // Construire les données par gare
+    const sens = voyageData.sens;
+
+    // ✅ Construire les données par gare
     const ventesParGare = garesFiltrees.map(gare => {
-      const quotaTicket = quotaTickets?.find(q => q.gare_num === gare.num);
+      const quotaData = quotaTicketsMap.get(gare.num);
+      const quotaTicketsValue = quotaData ? (sens === '2131' ? quotaData.quota_2131 : quotaData.quota_2132) : 0;
+
       const tickets = ticketsVendus?.filter(t => t.gare_ref === gare.num) || [];
       const bagages = bagagesVendus?.filter(b => b.gare_ref === gare.num) || [];
       const colis = colisVendus?.filter(c => c.gare_ref === gare.num) || [];
@@ -640,29 +654,30 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       const ticketsVendusCount = tickets.length;
       const recetteTickets = tickets.reduce((sum, t) => sum + (t.part_madarail || 0), 0);
       
-      // ✅ Poids équivalent pour les bagages (poids + volume * 500)
+      // ✅ Poids vendu pour cette gare (poids + volume * 500)
       const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0) + ((b.volume || 0) * 500), 0);
-      // ✅ Poids équivalent pour les colis (poids + volume * 500)
       const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0) + ((c.volume || 0) * 500), 0);
       const poidsTotal = poidsBagages + poidsColis;
       
-      // ✅ Recette bagages (part_madarail)
       const recetteBagages = bagages.reduce((sum, b) => sum + (b.part_madarail || 0), 0);
       const recetteColis = colis.reduce((sum, c) => sum + (c.part_madarail || 0), 0);
       const recetteBagagesTotal = recetteBagages + recetteColis;
 
-      // ✅ Récupérer le quota bagages pour cette gare via sa commune
-      const quotaBagagesForGare = quotaBagagesMap.get(gare.commune_tutelle) || 0;
+      // ✅ Récupérer le quota bagages pour la commune (même quota pour toutes les gares de la commune)
+      const quotaTotalCommune = quotaBagagesMap.get(gare.commune_tutelle);
+      const quotaBagagesValue = quotaTotalCommune 
+        ? (sens === '2131' ? quotaTotalCommune.quota_tonnes_2131 : quotaTotalCommune.quota_tonnes_2132)
+        : 0;
 
       return {
         gare_num: gare.num,
         gare_code: gare.code,
         gare_name: gare.gare,
         commune_tutelle: gare.commune_tutelle,
-        quota_tickets: quotaTicket?.quota || 0,
+        quota_tickets: quotaTicketsValue,
         tickets_vendus: ticketsVendusCount,
         recette_tickets: recetteTickets,
-        quota_bagages: quotaBagagesForGare,
+        quota_bagages: quotaBagagesValue, // ✅ Quota total de la commune (non divisé)
         poids_vendu: poidsTotal,
         recette_bagages: recetteBagagesTotal,
         recette_totale: recetteTickets + recetteBagagesTotal,
@@ -677,6 +692,9 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
     const totalRecetteBagages = ventesParGare.reduce((sum, v) => sum + v.recette_bagages, 0);
     const totalRecette = ventesParGare.reduce((sum, v) => sum + v.recette_totale, 0);
 
+    // ✅ Calcul du quota bagages total (somme des quotas des communes)
+    const totalQuotaBagages = ventesParGare.reduce((sum, v) => sum + v.quota_bagages, 0);
+
     const detail = {
       ...voyageData,
       ventes_par_gare: ventesParGare,
@@ -686,6 +704,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       total_recette_bagages: totalRecetteBagages,
       total_recette: totalRecette,
       gares_desactivees: garesDesactivees,
+      total_quota_bagages: totalQuotaBagages,
     };
 
     return { detail };
