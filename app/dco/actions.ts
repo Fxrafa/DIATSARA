@@ -106,47 +106,33 @@ export async function createVoyage(
     return { error: 'Erreur lors de la création du voyage' };
   }
 
-  // 2. Désactiver les ventes pour toutes les gares du trajet
+  // 2. ✅ Désactiver TOUTES les ventes (toutes les gares)
   const { data: allGares } = await supabaseAdmin
     .from('gare')
     .select('num')
     .order('num');
 
   if (allGares) {
-    const gareCodes = allGares.map(g => g.num);
-    const departIndex = gareCodes.indexOf(gare_depart);
-    const arriveeIndex = gareCodes.indexOf(gare_arrivee);
-    
-    let garesTrajet: number[] = [];
-    if (departIndex < arriveeIndex) {
-      garesTrajet = gareCodes.slice(departIndex, arriveeIndex + 1);
-    } else {
-      garesTrajet = gareCodes.slice(arriveeIndex, departIndex + 1);
-    }
-
-    const desactivations = garesTrajet.map(gareNum => ({
+    const toutesLesGares = allGares.map(gare => ({
       voyage_id: voyage.id,
-      gare_num: gareNum,
+      gare_num: gare.num,
     }));
 
-    if (desactivations.length > 0) {
-      const { error: desactError } = await supabaseAdmin
-        .from('vente_desactivee')
-        .insert(desactivations);
+    const { error: desactError } = await supabaseAdmin
+      .from('vente_desactivee')
+      .insert(toutesLesGares);
 
-      if (desactError) {
-        console.error('Erreur désactivation des ventes:', desactError);
-      }
+    if (desactError) {
+      console.error('Erreur désactivation des ventes:', desactError);
     }
   }
-
-  // ✅ Plus de création de quotas ici - les quotas sont globaux
 
   revalidatePath('/dco/planification');
   revalidatePath('/dco/historique');
   revalidatePath('/dco/suivi-temps-reel');
   redirect('/dco/historique');
 }
+
 
 export async function updateVoyage(
   prevState: ActionResponse | undefined,
@@ -634,11 +620,14 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
     const departIndex = gareCodes.indexOf(voyageData.gare_depart);
     const arriveeIndex = gareCodes.indexOf(voyageData.gare_arrivee);
     
+    // ✅ Filtrer les gares entre le départ et l'arrivée (EXCLURE l'arrivée)
     let garesFiltrees = allGares;
     if (voyageData.sens === '2131') {
-      garesFiltrees = allGares.slice(departIndex, arriveeIndex + 1);
+      // Sens Nord: du départ vers l'arrivée (exclure l'arrivée)
+      garesFiltrees = allGares.slice(departIndex, arriveeIndex);
     } else {
-      garesFiltrees = allGares.slice(arriveeIndex, departIndex + 1);
+      // Sens Sud: de l'arrivée vers le départ (exclure l'arrivée)
+      garesFiltrees = allGares.slice(arriveeIndex + 1, departIndex + 1);
     }
 
     // Construire les données par gare
@@ -749,13 +738,67 @@ export async function activerVenteGare(voyageId: string, gareNum: number) {
 
 export async function activerToutesVentes(voyageId: string) {
   try {
-    const { error } = await supabaseAdmin
+    // ✅ Récupérer le voyage pour connaître le trajet
+    const { data: voyage, error: voyageError } = await supabaseAdmin
+      .from('voyages')
+      .select('gare_depart, gare_arrivee, sens')
+      .eq('id', voyageId)
+      .single();
+
+    if (voyageError || !voyage) {
+      return { error: 'Voyage non trouvé' };
+    }
+
+    // ✅ Récupérer toutes les gares
+    const { data: allGares } = await supabaseAdmin
+      .from('gare')
+      .select('num')
+      .order('num');
+
+    if (!allGares) {
+      return { error: 'Erreur lors du chargement des gares' };
+    }
+
+    const gareCodes = allGares.map(g => g.num);
+    const departIndex = gareCodes.indexOf(voyage.gare_depart);
+    const arriveeIndex = gareCodes.indexOf(voyage.gare_arrivee);
+
+    // ✅ Déterminer les gares du trajet (départ inclus, arrivée exclu)
+    let garesTrajet: number[] = [];
+    if (departIndex < arriveeIndex) {
+      // Sens 2131 (Nord) - MGA vers MNG
+      garesTrajet = gareCodes.slice(departIndex, arriveeIndex);
+    } else {
+      // Sens 2132 (Sud) - MNG vers MGA
+      garesTrajet = gareCodes.slice(arriveeIndex + 1, departIndex + 1);
+    }
+
+    // ✅ Supprimer toutes les désactivations pour ce voyage
+    const { error: deleteAllError } = await supabaseAdmin
       .from('vente_desactivee')
       .delete()
       .eq('voyage_id', voyageId);
 
-    if (error) {
-      return { error: 'Erreur lors de l\'activation' };
+    if (deleteAllError) {
+      return { error: 'Erreur lors de la suppression des désactivations' };
+    }
+
+    // ✅ Désactiver les gares hors trajet (toutes les gares - garesTrajet)
+    const garesHorsTrajet = gareCodes.filter(g => !garesTrajet.includes(g));
+
+    if (garesHorsTrajet.length > 0) {
+      const desactivations = garesHorsTrajet.map(gareNum => ({
+        voyage_id: voyageId,
+        gare_num: gareNum,
+      }));
+
+      const { error: desactError } = await supabaseAdmin
+        .from('vente_desactivee')
+        .insert(desactivations);
+
+      if (desactError) {
+        return { error: 'Erreur lors de la désactivation des gares hors trajet' };
+      }
     }
 
     revalidatePath('/dco/suivi-temps-reel');
