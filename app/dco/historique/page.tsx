@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { Calendar, Edit, CheckCircle, AlertCircle, Clock, Train, Users, Package } from 'lucide-react';
+import { Calendar, Edit, CheckCircle, AlertCircle, Clock, Train, Users, Package, Eye } from 'lucide-react';
 import { terminerVoyage } from '../actions';
 import { useRouter } from 'next/navigation';
 
@@ -26,11 +26,11 @@ interface Voyage {
 }
 
 export default function HistoriquePage() {
+  const router = useRouter();
   const [voyages, setVoyages] = useState<Voyage[]>([]);
   const [loading, setLoading] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   const fetchVoyages = async () => {
     setLoading(true);
@@ -76,6 +76,17 @@ export default function HistoriquePage() {
     router.push(`/dco/historique/modifier/${voyage.id}`);
   };
 
+  // ✅ Redirection selon le statut du voyage
+  const handleRowClick = (voyage: Voyage) => {
+    if (voyage.statut === 'actif') {
+      // Redirection vers le suivi en temps réel pour ce voyage
+      router.push(`/dco/suivi-temps-reel?voyage=${voyage.id}`);
+    } else {
+      // Redirection vers la recette de ce voyage
+      router.push(`/dco/historique-recette?voyage=${voyage.id}`);
+    }
+  };
+
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('fr-FR', {
       weekday: 'long',
@@ -115,6 +126,10 @@ export default function HistoriquePage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Historique des voyages</h1>
         <p className="text-gray-600 mt-1">Consultez et gérez tous les voyages planifiés</p>
+        <p className="text-sm text-gray-400 mt-1">
+          💡 Cliquez sur un voyage <span className="text-green-600 font-medium">actif</span> pour accéder au suivi en temps réel, 
+          ou sur un voyage <span className="text-gray-600 font-medium">terminé</span> pour voir sa recette.
+        </p>
       </div>
 
       {error && (
@@ -157,7 +172,17 @@ export default function HistoriquePage() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {voyages.map((voyage) => (
-                  <tr key={voyage.id} className="hover:bg-gray-50 transition">
+                  <tr
+                    key={voyage.id}
+                    onClick={() => handleRowClick(voyage)}
+                    className={`
+                      transition cursor-pointer
+                      ${voyage.statut === 'actif' 
+                        ? 'hover:bg-green-50 hover:shadow-inner' 
+                        : 'hover:bg-gray-50 hover:shadow-inner'
+                      }
+                    `}
+                  >
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatDate(voyage.date_voyage)}
                     </td>
@@ -203,23 +228,51 @@ export default function HistoriquePage() {
                         {voyage.statut === 'actif' && (
                           <>
                             <button
-                              onClick={() => setShowConfirmModal(voyage.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowConfirmModal(voyage.id);
+                              }}
                               className="inline-flex items-center gap-1 px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium transition"
                             >
                               <CheckCircle className="h-3 w-3" />
                               Effectuer
                             </button>
                             <button
-                              onClick={() => handleEdit(voyage)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEdit(voyage);
+                              }}
                               className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium transition"
                             >
                               <Edit className="h-3 w-3" />
                               Modifier
                             </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRowClick(voyage);
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium transition"
+                            >
+                              <Eye className="h-3 w-3" />
+                              Suivi
+                            </button>
                           </>
                         )}
                         {voyage.statut === 'termine' && (
-                          <span className="text-gray-400 text-xs">Terminé</span>
+                          <>
+                            <span className="text-gray-400 text-xs">Terminé</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRowClick(voyage);
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-xs font-medium transition"
+                            >
+                              <Eye className="h-3 w-3" />
+                              Recette
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
