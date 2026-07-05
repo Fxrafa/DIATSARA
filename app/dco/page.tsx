@@ -1,10 +1,9 @@
- 
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/set-state-in-effect */
-/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Calendar, Clock, Train, Ticket, Eye, Users, Package } from 'lucide-react';
+import { Calendar, Clock, Train, Eye, Users, Package, PlusCircle, History, Activity, BarChart3 } from 'lucide-react';
 import { getVoyagesActifsWithQuotas } from './actions';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -24,17 +23,11 @@ interface Voyage {
   gare_arrivee_detail?: { code: string; gare: string };
 }
 
-interface VoyageWithQuotas extends Voyage {
-  total_places_attribuees: number;
-  total_tonnes_attribuees: number;
-}
-
 export default function DCOHomePage() {
-  const [voyagesActifs, setVoyagesActifs] = useState<VoyageWithQuotas[]>([]);
+  const [voyagesActifs, setVoyagesActifs] = useState<Voyage[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     actifs: 0,
-    termines: 0,
   });
 
   // Fonction pour récupérer les données
@@ -42,17 +35,7 @@ export default function DCOHomePage() {
     setLoading(true);
 
     try {
-      // Récupérer le nombre de voyages terminés
-      const { count: terminesCount, error: terminesError } = await supabase
-        .from('voyages')
-        .select('*', { count: 'exact', head: true })
-        .eq('statut', 'termine');
-
-      if (terminesError) {
-        console.error('Erreur voyages terminés:', terminesError);
-      }
-
-      // Récupérer les voyages actifs avec quotas
+      // Récupérer les voyages actifs
       const result = await getVoyagesActifsWithQuotas();
       
       if (result.error) {
@@ -65,7 +48,6 @@ export default function DCOHomePage() {
       setVoyagesActifs(result.voyages || []);
       setStats({
         actifs: result.voyages?.length || 0,
-        termines: terminesCount || 0,
       });
 
     } catch (err) {
@@ -88,6 +70,14 @@ export default function DCOHomePage() {
     });
   };
 
+  const formatShortDate = (date: string) => {
+    return new Date(date).toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  };
+
   const getFormationText = (voyage: Voyage) => {
     const parts = [];
     if (voyage.formation_voiture > 0) parts.push(`${voyage.formation_voiture}×1ère`);
@@ -96,181 +86,188 @@ export default function DCOHomePage() {
     return parts.join(' | ') || 'Aucune formation';
   };
 
-  const getQuotaStatus = (attribue: number, max: number) => {
-    const ratio = max > 0 ? (attribue / max) * 100 : 0;
-    if (ratio >= 100) return { color: 'text-red-600', bg: 'bg-red-100' };
-    if (ratio >= 70) return { color: 'text-orange-600', bg: 'bg-orange-100' };
-    return { color: 'text-green-600', bg: 'bg-green-100' };
-  };
-
   if (loading) {
     return (
       <div className="text-center py-12">
-        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
-        <p className="mt-2 text-gray-500">Chargement...</p>
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-amber-700 border-t-transparent"></div>
+        <p className="mt-2 text-stone-500">Chargement...</p>
       </div>
     );
   }
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-2">Tableau de bord DCO</h1>
-      <p className="text-gray-600 mb-8">Gestion des voyages et opérations</p>
+      <div className="mb-8">
+        <h1 className="text-3xl font-serif font-bold text-stone-800">Tableau de bord DCO</h1>
+        <p className="text-stone-500 mt-1">Gestion des voyages et opérations</p>
+      </div>
 
-      {/* Statistiques - uniquement voyages actifs et terminés */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 max-w-md">
-        <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-green-500">
+      {/* Statistique - Voyages actifs */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+        <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Voyages actifs</p>
-              <p className="text-2xl font-bold text-green-600">{stats.actifs}</p>
+              <p className="text-sm text-stone-500 font-medium">Voyages actifs</p>
+              <p className="text-3xl font-bold text-amber-700">{stats.actifs}</p>
             </div>
-            <Clock className="h-8 w-8 text-green-500 opacity-50" />
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-gray-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Voyages terminés</p>
-              <p className="text-2xl font-bold text-gray-600">{stats.termines}</p>
+            <div className="h-12 w-12 rounded-xl bg-amber-100/50 flex items-center justify-center">
+              <Clock className="h-6 w-6 text-amber-700" />
             </div>
-            <Calendar className="h-8 w-8 text-gray-500 opacity-50" />
           </div>
         </div>
       </div>
 
-      {/* Actions rapides */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Actions rapides</h2>
-          <div className="space-y-3">
-            <a
-              href="/dco/planification"
-              className="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg transition"
-            >
-              Planifier un nouveau voyage
-            </a>
-            <a
-              href="/dco/historique"
-              className="block w-full text-center bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-3 rounded-lg transition"
-            >
-              Voir l'historique
-            </a>
+      {/* Actions rapides - 4 boutons */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <a
+          href="/dco/planification"
+          className="group bg-white rounded-xl shadow-sm border border-stone-200/60 p-4 hover:shadow-md transition-all hover:-translate-y-0.5"
+        >
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-amber-100/50 group-hover:bg-amber-100 transition flex items-center justify-center shrink-0">
+              <PlusCircle className="h-5 w-5 text-amber-700" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-stone-800">Planifier</p>
+              <p className="text-xs text-stone-500">Nouveau voyage</p>
+            </div>
           </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Informations</h2>
-          <p className="text-gray-600 text-sm">
-            Planifiez les voyages, gérez les formations et suivez l'historique des opérations.
-          </p>
-          <div className="mt-4 flex items-center gap-2 text-sm text-gray-500">
-            <Ticket className="h-4 w-4" />
-            <span>{stats.actifs} voyage(s) actif(s)</span>
+        </a>
+
+        <a
+          href="/dco/historique"
+          className="group bg-white rounded-xl shadow-sm border border-stone-200/60 p-4 hover:shadow-md transition-all hover:-translate-y-0.5"
+        >
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-stone-100/50 group-hover:bg-stone-100 transition flex items-center justify-center shrink-0">
+              <History className="h-5 w-5 text-stone-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-stone-800">Historique</p>
+              <p className="text-xs text-stone-500">Voyages effectués</p>
+            </div>
           </div>
-        </div>
+        </a>
+
+        <a
+          href="/dco/historique-recette"
+          className="group bg-white rounded-xl shadow-sm border border-stone-200/60 p-4 hover:shadow-md transition-all hover:-translate-y-0.5"
+        >
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-emerald-100/50 group-hover:bg-emerald-100 transition flex items-center justify-center shrink-0">
+              <BarChart3 className="h-5 w-5 text-emerald-700" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-stone-800">Recettes</p>
+              <p className="text-xs text-stone-500">Historique des ventes</p>
+            </div>
+          </div>
+        </a>
+
+        <a
+          href="/dco/suivi-temps-reel"
+          className="group bg-white rounded-xl shadow-sm border border-stone-200/60 p-4 hover:shadow-md transition-all hover:-translate-y-0.5"
+        >
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-blue-100/50 group-hover:bg-blue-100 transition flex items-center justify-center shrink-0">
+              <Activity className="h-5 w-5 text-blue-700" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-stone-800">Suivi</p>
+              <p className="text-xs text-stone-500">Temps réel</p>
+            </div>
+          </div>
+        </a>
       </div>
 
-      {/* Liste des voyages actifs avec leurs quotas */}
+      {/* Liste des voyages actifs - En colonnes */}
       {voyagesActifs.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl shadow-sm">
-          <Calendar className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-500">Aucun voyage actif</p>
+        <div className="text-center py-16 bg-white rounded-xl shadow-sm border border-stone-200/60">
+          <Calendar className="h-16 w-16 text-stone-300 mx-auto mb-4" />
+          <p className="text-stone-500 font-medium">Aucun voyage actif</p>
+          <p className="text-sm text-stone-400 mt-1">Les voyages planifiés apparaîtront ici</p>
           <a
             href="/dco/planification"
-            className="inline-block mt-4 text-blue-600 hover:text-blue-700 font-medium"
+            className="inline-block mt-4 text-amber-700 hover:text-amber-800 font-medium hover:underline"
           >
-            Planifier un voyage
+            Planifier un voyage →
           </a>
         </div>
       ) : (
-        <div className="space-y-4">
-          <h2 className="text-xl font-bold text-gray-900">Voyages actifs avec quotas</h2>
-          {voyagesActifs.map((voyage) => {
-            const placesStatus = getQuotaStatus(voyage.total_places_attribuees, voyage.places_max);
-            const tonnesStatus = getQuotaStatus(voyage.total_tonnes_attribuees, voyage.poids_max);
-            
-            return (
-              <div key={voyage.id} className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
-                <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-medium text-gray-500">
-                      {formatDate(voyage.date_voyage)}
+        <>
+          <h2 className="text-xl font-serif font-semibold text-stone-800 flex items-center gap-2 mb-4">
+            <Train className="h-5 w-5 text-amber-700" />
+            Voyages actifs
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {voyagesActifs.map((voyage) => {
+              return (
+                <div key={voyage.id} className="bg-white rounded-xl shadow-sm border border-stone-200/60 overflow-hidden hover:shadow-md transition-shadow group">
+                  {/* En-tête compact */}
+                  <div className="px-4 py-3 bg-stone-50/80 border-b border-stone-200/60 flex items-center justify-between">
+                    <span className="text-xs font-medium text-stone-500">
+                      {formatShortDate(voyage.date_voyage)}
                     </span>
-                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">
                       <Clock className="h-3 w-3" />
                       Actif
                     </span>
-                    <span className="text-sm font-medium text-gray-700">
-                      Sens {voyage.sens}
-                    </span>
                   </div>
-                  <a
-                    href={`/dco/historique`}
-                    className="flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium transition"
-                  >
-                    <Eye className="h-3 w-3" />
-                    Voir détails
-                  </a>
-                </div>
 
-                <div className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  {/* Corps compact */}
+                  <div className="p-4 space-y-3">
+                    {/* Parcours */}
                     <div>
-                      <p className="text-xs text-gray-500 mb-1">Parcours</p>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">
-                          {voyage.gare_depart_detail?.code || voyage.gare_depart}
-                        </span>
-                        <span className="text-gray-400">→</span>
-                        <span className="font-medium text-gray-900">
-                          {voyage.gare_arrivee_detail?.code || voyage.gare_arrivee}
-                        </span>
+                      <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">Parcours</p>
+                      <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
+                        <span>{voyage.gare_depart_detail?.code || voyage.gare_depart}</span>
+                        <span className="text-stone-300">→</span>
+                        <span>{voyage.gare_arrivee_detail?.code || voyage.gare_arrivee}</span>
+                      </div>
+                      <span className="text-xs text-stone-400">Sens {voyage.sens}</span>
+                    </div>
+
+                    {/* Formation */}
+                    <div>
+                      <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">Formation</p>
+                      <div className="flex items-center gap-1.5 text-sm text-stone-700">
+                        <Train className="h-3.5 w-3.5 text-stone-400" />
+                        <span>{getFormationText(voyage)}</span>
                       </div>
                     </div>
 
+                    {/* Capacité */}
                     <div>
-                      <p className="text-xs text-gray-500 mb-1">Formation</p>
-                      <div className="flex items-center gap-2">
-                        <Train className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm text-gray-900">{getFormationText(voyage)}</span>
+                      <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">Capacité</p>
+                      <div className="flex items-center gap-3 text-sm">
+                        <div className="flex items-center gap-1">
+                          <Users className="h-3.5 w-3.5 text-blue-500" />
+                          <span className="text-stone-700">{voyage.places_max} pl.</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Package className="h-3.5 w-3.5 text-amber-500" />
+                          <span className="text-stone-700">{voyage.poids_max} t</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">Quota Places</p>
-                      <div className="flex items-center gap-2">
-                        <Users className="h-4 w-4 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900">
-                          {voyage.total_places_attribuees} / {voyage.places_max}
-                        </span>
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${placesStatus.bg} ${placesStatus.color}`}>
-                          {voyage.places_max > 0 
-                            ? Math.round((voyage.total_places_attribuees / voyage.places_max) * 100)
-                            : 0}%
-                        </span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">Quota Bagages</p>
-                      <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-orange-500" />
-                        <span className="text-sm font-medium text-gray-900">
-                          {voyage.total_tonnes_attribuees}T / {voyage.poids_max}T
-                        </span>
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${tonnesStatus.bg} ${tonnesStatus.color}`}>
-                          {voyage.poids_max > 0 
-                            ? Math.round((voyage.total_tonnes_attribuees / voyage.poids_max) * 100)
-                            : 0}%
-                        </span>
-                      </div>
+                    {/* Bouton Suivi */}
+                    <div className="pt-2 border-t border-stone-200/60">
+                      <a
+                        href={`/dco/suivi-temps-reel?voyage=${voyage.id}`}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-medium transition shadow-sm shadow-amber-700/20"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Suivi
+                      </a>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

@@ -11,6 +11,9 @@ interface ActionResponse {
   success?: boolean;
 }
 
+// ✅ Rôles qui nécessitent une gare
+const ROLES_WITH_GARE = ['VBC', 'RD'];
+
 export async function updateUserProfile(
   userId: string,
   nom: string,
@@ -59,8 +62,13 @@ export async function updateUserProfile(
     return { error: 'Le matricule doit contenir au moins 3 caractères' };
   }
 
-  if (!role || !['ADMIN', 'DCO', 'CTV', 'VBC'].includes(role)) {
+  if (!role || !['ADMIN', 'DCO', 'CTV', 'VBC', 'RD'].includes(role)) {
     return { error: 'Rôle invalide' };
+  }
+
+  // ✅ Vérifier la gare pour VBC et RD
+  if (ROLES_WITH_GARE.includes(role) && !gareRef) {
+    return { error: `Pour le rôle ${role}, une gare doit être attribuée` };
   }
 
   const { data: existingUser } = await supabaseAdmin
@@ -80,7 +88,8 @@ export async function updateUserProfile(
     role: role,
   };
 
-  if (role === 'VBC') {
+  // ✅ Gérer la gare_ref pour VBC et RD
+  if (ROLES_WITH_GARE.includes(role)) {
     updateData.gare_ref = gareRef || null;
   } else {
     updateData.gare_ref = null;

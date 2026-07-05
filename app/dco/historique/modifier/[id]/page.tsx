@@ -1,4 +1,3 @@
- 
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react/no-unescaped-entities */
 'use client';
@@ -8,7 +7,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useActionState } from 'react';
 import { updateVoyage } from '../../../actions';
 import { supabase } from '@/lib/supabaseClient';
-import { Calendar, MapPin, Train, AlertCircle, Save, Users, Package, CheckCircle } from 'lucide-react';
+import { Calendar, MapPin, Train, AlertCircle, Save, Users, Package, CheckCircle, ArrowLeft } from 'lucide-react';
 
 interface Gare {
   num: number;
@@ -105,106 +104,109 @@ export default function ModifierVoyagePage() {
 
   if (loading) {
     return (
-      <div className="text-center py-12">
-        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
-        <p className="mt-2 text-gray-500">Chargement...</p>
+      <div className="flex items-center justify-center h-64">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-amber-700 border-t-transparent"></div>
+        <p className="ml-3 text-stone-500">Chargement...</p>
       </div>
     );
   }
 
   if (!voyage) {
     return (
-      <div className="text-center py-12">
-        <p className="text-gray-500">Voyage non trouvé</p>
-        <a href="/dco/historique" className="text-blue-600 hover:underline mt-2 inline-block">
-          Retour à l&apos;historique
+      <div className="text-center py-16 bg-white rounded-xl shadow-sm border border-stone-200/60">
+        <AlertCircle className="h-16 w-16 text-stone-300 mx-auto mb-4" />
+        <p className="text-stone-500 font-medium">Voyage non trouvé</p>
+        <a href="/dco/historique" className="inline-block mt-4 text-amber-700 hover:text-amber-800 font-medium hover:underline">
+          Retour à l'historique →
         </a>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Modifier le voyage</h1>
-        <p className="text-gray-600 mt-1">Modifiez les informations du voyage</p>
+    <div className="max-w-4xl mx-auto">
+      <div className="mb-6 flex items-center gap-4">
+        <button
+          onClick={() => router.push('/dco/historique')}
+          className="inline-flex items-center gap-2 text-stone-500 hover:text-stone-700 transition"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Retour
+        </button>
+        <div>
+          <h1 className="text-2xl font-serif font-bold text-stone-800">Modifier le voyage</h1>
+          <p className="text-stone-500 text-sm">Modifiez les informations du voyage</p>
+        </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm p-6 max-w-3xl">
-        <form action={formAction} className="space-y-6">
+      <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-6">
+        <form action={formAction} className="space-y-5">
           <input type="hidden" name="id" value={voyage.id} />
 
-          {/* Date */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Date du voyage
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Calendar className="h-5 w-5 text-gray-400" />
+          {/* Date + Sens */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Date */}
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wider mb-1.5">
+                Date du voyage
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Calendar className="h-4 w-4 text-stone-400" />
+                </div>
+                <input
+                  type="date"
+                  name="date_voyage"
+                  className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-lg text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/20 focus:border-amber-700 transition-all"
+                  required
+                  min={new Date().toISOString().split('T')[0]}
+                />
               </div>
-              <input
-                type="date"
-                name="date_voyage"
-                className="w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-                defaultValue={voyage.date_voyage}
-                required
-              />
             </div>
-          </div>
 
-          {/* Sens */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Sens du train
-            </label>
-            <div className="grid grid-cols-2 gap-4">
-              <label className={`flex items-center p-4 border rounded-lg cursor-pointer transition ${
-                voyage.sens === '2131' ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:bg-gray-50'
-              }`}>
-                <input
-                  type="radio"
-                  name="sens"
-                  value="2131"
-                  defaultChecked={voyage.sens === '2131'}
-                  className="h-4 w-4 text-blue-600"
-                  required
-                />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-900">2131 (Impair)</p>
-                </div>
+            {/* Sens */}
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wider mb-1.5">
+                Sens du train
               </label>
-              <label className={`flex items-center p-4 border rounded-lg cursor-pointer transition ${
-                voyage.sens === '2132' ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:bg-gray-50'
-              }`}>
-                <input
-                  type="radio"
-                  name="sens"
-                  value="2132"
-                  defaultChecked={voyage.sens === '2132'}
-                  className="h-4 w-4 text-blue-600"
-                  required
-                />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-900">2132 (Pair)</p>
-                </div>
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex items-center p-2.5 border border-stone-200 rounded-lg hover:bg-stone-50 cursor-pointer transition has-checked:border-amber-700 has-checked:bg-amber-50/50">
+                  <input
+                    type="radio"
+                    name="sens"
+                    value="2131"
+                    className="h-3.5 w-3.5 text-amber-700 focus:ring-amber-700"
+                    required
+                  />
+                  <span className="ml-2 text-sm font-medium text-stone-700">2131 (Impair)</span>
+                </label>
+                <label className="flex items-center p-2.5 border border-stone-200 rounded-lg hover:bg-stone-50 cursor-pointer transition has-checked:border-amber-700 has-checked:bg-amber-50/50">
+                  <input
+                    type="radio"
+                    name="sens"
+                    value="2132"
+                    className="h-3.5 w-3.5 text-amber-700 focus:ring-amber-700"
+                    required
+                  />
+                  <span className="ml-2 text-sm font-medium text-stone-700">2132 (Pair)</span>
+                </label>
+              </div>
             </div>
           </div>
 
           {/* Gares */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wider mb-1.5">
                 Gare de départ
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <MapPin className="h-5 w-5 text-gray-400" />
+                  <MapPin className="h-4 w-4 text-stone-400" />
                 </div>
                 <select
                   name="gare_depart"
-                  className="w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-lg text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/20 focus:border-amber-700 transition-all appearance-none"
                   defaultValue={voyage.gare_depart}
                   required
                 >
@@ -218,16 +220,16 @@ export default function ModifierVoyagePage() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wider mb-1.5">
                 Gare d'arrivée
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <MapPin className="h-5 w-5 text-gray-400" />
+                  <MapPin className="h-4 w-4 text-stone-400" />
                 </div>
                 <select
                   name="gare_arrivee"
-                  className="w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-lg text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/20 focus:border-amber-700 transition-all appearance-none"
                   defaultValue={voyage.gare_arrivee}
                   required
                 >
@@ -243,91 +245,95 @@ export default function ModifierVoyagePage() {
           </div>
 
           {/* Formation du train */}
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center gap-2">
-              <Train className="h-4 w-4" />
+          <div className="bg-stone-50/80 rounded-lg p-4 border border-stone-200/60">
+            <h3 className="text-xs font-semibold text-stone-700 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Train className="h-4 w-4 text-amber-700" />
               Formation du train
             </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Voitures 1ère classe (0-2)
+                <label className="block text-xs font-medium text-stone-600 mb-1.5">
+                  1ère classe <span className="text-stone-400">(0-2)</span>
                 </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
                     name="formation_voiture"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                    className="w-full px-3 py-2 bg-white border border-stone-200 rounded-lg text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/20 focus:border-amber-700 transition-all"
                     min="0"
                     max="2"
                     value={voiture1}
                     onChange={handleVoiture1Change}
                     required
                   />
-                  <span className="text-xs text-gray-500 whitespace-nowrap">× 60 places</span>
+                  <span className="text-xs text-stone-400 whitespace-nowrap">× 60 pl.</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Voitures 2ème classe (0-4)
+                <label className="block text-xs font-medium text-stone-600 mb-1.5">
+                  2ème classe <span className="text-stone-400">(0-4)</span>
                 </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
                     name="formation_voiture2"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                    className="w-full px-3 py-2 bg-white border border-stone-200 rounded-lg text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/20 focus:border-amber-700 transition-all"
                     min="0"
                     max="4"
                     value={voiture2}
                     onChange={handleVoiture2Change}
                     required
                   />
-                  <span className="text-xs text-gray-500 whitespace-nowrap">× 72 places</span>
+                  <span className="text-xs text-stone-400 whitespace-nowrap">× 72 pl.</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Wagons marchandises (2-6)
+                <label className="block text-xs font-medium text-stone-600 mb-1.5">
+                  Wagons <span className="text-stone-400">(2-6)</span>
                 </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
                     name="formation_wagon"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                    className="w-full px-3 py-2 bg-white border border-stone-200 rounded-lg text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/20 focus:border-amber-700 transition-all"
                     min="2"
                     max="6"
                     value={wagon}
                     onChange={handleWagonChange}
                     required
                   />
-                  <span className="text-xs text-gray-500 whitespace-nowrap">× 20 tonnes</span>
+                  <span className="text-xs text-stone-400 whitespace-nowrap">× 20 t</span>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Résumé des calculs */}
-          <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-            <h3 className="text-sm font-medium text-blue-800 mb-3 flex items-center gap-2">
+          <div className="bg-amber-50/80 rounded-lg p-4 border border-amber-200/60">
+            <h3 className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-2.5 flex items-center gap-2">
               <CheckCircle className="h-4 w-4" />
               Récapitulatif de la formation
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-center gap-3 bg-white rounded-lg px-4 py-3 shadow-sm">
-                <Users className="h-5 w-5 text-blue-600" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex items-center gap-3 bg-white rounded-lg px-3 py-2 shadow-sm border border-stone-200/60">
+                <Users className="h-4 w-4 text-amber-700" />
                 <div>
-                  <p className="text-xs text-gray-500">Places maximales</p>
-                  <p className="text-xl font-bold text-blue-700">{calculs.placesMax}</p>
+                  <p className="text-xs text-stone-500 font-medium">Places maximales</p>
+                  <p className="text-lg font-bold text-amber-800">{calculs.placesMax}</p>
+                  <p className="text-xs text-stone-400">
+                    ({voiture1} × 60) + ({voiture2} × 72)
+                  </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 bg-white rounded-lg px-4 py-3 shadow-sm">
-                <Package className="h-5 w-5 text-orange-600" />
+              <div className="flex items-center gap-3 bg-white rounded-lg px-3 py-2 shadow-sm border border-stone-200/60">
+                <Package className="h-4 w-4 text-emerald-700" />
                 <div>
-                  <p className="text-xs text-gray-500">Capacité maximale</p>
-                  <p className="text-xl font-bold text-orange-700">{calculs.poidsMax} tonnes</p>
+                  <p className="text-xs text-stone-500 font-medium">Capacité maximale</p>
+                  <p className="text-lg font-bold text-emerald-800">{calculs.poidsMax} tonnes</p>
+                  <p className="text-xs text-stone-400">{wagon} × 20 tonnes</p>
                 </div>
               </div>
             </div>
@@ -335,34 +341,36 @@ export default function ModifierVoyagePage() {
             <input type="hidden" name="poids_max" value={calculs.poidsMax} />
           </div>
 
+          {/* Erreur */}
           {state?.error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+            <div className="flex items-center gap-2 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
               <span>{state.error}</span>
             </div>
           )}
 
-          <div className="flex gap-4">
+          {/* Boutons */}
+          <div className="flex gap-3">
             <button
               type="submit"
               disabled={isPending}
-              className="flex-1 bg-linear-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-lg font-medium hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30"
+              className="flex-1 bg-linear-to-r from-amber-800 to-stone-800 hover:from-amber-700 hover:to-stone-700 text-white py-2.5 rounded-lg font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm shadow-amber-900/20 hover:shadow-amber-900/30"
             >
               {isPending ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                   <span>Enregistrement...</span>
                 </>
               ) : (
                 <>
-                  <Save className="h-5 w-5" />
+                  <Save className="h-4 w-4" />
                   <span>Enregistrer les modifications</span>
                 </>
               )}
             </button>
             <a
               href="/dco/historique"
-              className="px-6 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition flex items-center justify-center"
+              className="px-6 py-2.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 transition font-medium text-sm flex items-center justify-center"
             >
               Annuler
             </a>

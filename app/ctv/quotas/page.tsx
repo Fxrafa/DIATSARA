@@ -17,7 +17,8 @@ import {
   Train,
   MapPin,
   Loader2,
-  ArrowLeftRight
+  ArrowLeftRight,
+  RefreshCw
 } from 'lucide-react';
 import { saveQuotaTickets, saveQuotaBagages } from '../actions';
 
@@ -73,18 +74,25 @@ export default function QuotasPage() {
     setError(null);
 
     try {
-      // Récupérer les gares
+      // Récupérer les gares triées par num (ordre croissant = MGA → MNG)
       const { data: garesData } = await supabase
         .from('gare')
         .select('*')
-        .order('num');
+        .order('num', { ascending: true });
       setGares(garesData || []);
 
-      // Récupérer les communes uniques
-      const communesUniques = [...new Set(garesData?.map(g => g.commune_tutelle) || [])];
+      // Récupérer les communes uniques dans l'ordre des gares
+      const communesUniques: string[] = [];
+      const communesSet = new Set<string>();
+      garesData?.forEach(g => {
+        if (!communesSet.has(g.commune_tutelle)) {
+          communesSet.add(g.commune_tutelle);
+          communesUniques.push(g.commune_tutelle);
+        }
+      });
       setCommunes(communesUniques);
 
-      // ✅ Récupérer les quotas tickets GLOBAUX
+      // Récupérer les quotas tickets GLOBAUX
       const { data: ticketsData } = await supabase
         .from('quota_tickets')
         .select('*')
@@ -97,7 +105,6 @@ export default function QuotasPage() {
           quota_2132: t.quota_2132 || 50
         })));
       } else {
-        // Initialiser avec 50 pour toutes les gares
         const initialTickets = garesData?.map(g => ({ 
           gare_num: g.num, 
           quota_2131: 50,
@@ -106,7 +113,7 @@ export default function QuotasPage() {
         setQuotaTickets(initialTickets);
       }
 
-      // ✅ Récupérer les quotas bagages GLOBAUX
+      // Récupérer les quotas bagages GLOBAUX
       const { data: bagagesData } = await supabase
         .from('quota_bagages')
         .select('*')
@@ -119,7 +126,6 @@ export default function QuotasPage() {
           quota_tonnes_2132: b.quota_tonnes_2132 || 3
         })));
       } else {
-        // Initialiser avec 3 tonnes pour toutes les communes
         const initialBagages = communesUniques.map(c => ({ 
           commune_tutelle: c,
           quota_tonnes_2131: 3,
@@ -190,6 +196,7 @@ export default function QuotasPage() {
       setError(result.error);
     } else {
       setSuccess('Quotas tickets sauvegardés avec succès !');
+      setTimeout(() => setSuccess(null), 3000);
     }
     setSaving(false);
   };
@@ -211,59 +218,59 @@ export default function QuotasPage() {
       setError(result.error);
     } else {
       setSuccess('Quotas bagages sauvegardés avec succès !');
+      setTimeout(() => setSuccess(null), 3000);
     }
     setSaving(false);
   };
 
-  // Calcul du total des places max (pour l'affichage)
-  const [placesMax, setPlacesMax] = useState(0);
-  const [poidsMax, setPoidsMax] = useState(0);
+  // Obtenir les gares triées selon le sens
+  const getSortedGares = () => {
+    if (sensTab === '2131') {
+      // Sens impair (MGA → MNG) : ordre croissant (1 → 25)
+      return [...gares].sort((a, b) => a.num - b.num);
+    } else {
+      // Sens pair (MNG → MGA) : ordre décroissant (25 → 1)
+      return [...gares].sort((a, b) => b.num - a.num);
+    }
+  };
 
-  useEffect(() => {
-    const fetchMax = async () => {
-      const { data } = await supabase
-        .from('voyages')
-        .select('places_max, poids_max')
-        .eq('statut', 'actif')
-        .limit(1);
-      
-      if (data && data.length > 0) {
-        setPlacesMax(data[0].places_max);
-        setPoidsMax(data[0].poids_max);
-      }
-    };
-    fetchMax();
-  }, []);
+  // Obtenir les communes triées selon le sens
+  const getSortedCommunes = () => {
+    if (sensTab === '2131') {
+      return [...communes];
+    } else {
+      return [...communes].reverse();
+    }
+  };
 
   if (loading) {
     return (
-      <div className="text-center py-12">
-        <Loader2 className="h-12 w-12 text-green-600 animate-spin mx-auto" />
-        <p className="mt-4 text-gray-500">Chargement des données...</p>
+      <div className="flex items-center justify-center h-64">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-700 border-t-transparent"></div>
+        <p className="ml-3 text-stone-500">Chargement des données...</p>
       </div>
     );
   }
 
+  const currentTotal = activeTab === 'tickets' 
+    ? (sensTab === '2131' ? totalTickets2131 : totalTickets2132)
+    : (sensTab === '2131' ? totalBagages2131 : totalBagages2132);
+
+  const sortedGares = getSortedGares();
+  const sortedCommunes = getSortedCommunes();
+
   return (
     <div>
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
+      <div className="mb-6">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Attribution des quotas</h1>
-            <p className="text-gray-600 mt-1">
+            <h1 className="text-2xl font-serif font-bold text-stone-800 flex items-center gap-2">
+              <Ticket className="h-6 w-6 text-emerald-700" />
+              Attribution des quotas
+            </h1>
+            <p className="text-stone-500 text-sm">
               Quotas applicables à tous les voyages actifs
             </p>
-          </div>
-          <div className="text-right">
-            <div className="text-sm text-gray-500">Capacité maximale (par voyage)</div>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1 text-blue-600 font-medium">
-                <Users className="h-4 w-4" /> {placesMax} places
-              </span>
-              <span className="flex items-center gap-1 text-orange-600 font-medium">
-                <Package className="h-4 w-4" /> {poidsMax} tonnes
-              </span>
-            </div>
           </div>
         </div>
       </div>
@@ -276,20 +283,20 @@ export default function QuotasPage() {
       )}
 
       {success && (
-        <div className="mb-4 flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
-          <CheckCircle className="h-5 w-5 text-green-500 shrink-0" />
+        <div className="mb-4 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">
+          <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
           <span>{success}</span>
         </div>
       )}
 
       {/* Switch Tabs - Type de quota */}
-      <div className="bg-white rounded-xl shadow-sm mb-4 p-1 flex gap-1">
+      <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-1 flex gap-1 mb-4">
         <button
           onClick={() => setActiveTab('tickets')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition ${
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg transition ${
             activeTab === 'tickets'
-              ? 'bg-green-600 text-white shadow-lg'
-              : 'text-gray-600 hover:bg-gray-100'
+              ? 'bg-emerald-700 text-white shadow-lg shadow-emerald-700/20'
+              : 'text-stone-600 hover:bg-stone-50'
           }`}
         >
           <Ticket className="h-5 w-5" />
@@ -297,10 +304,10 @@ export default function QuotasPage() {
         </button>
         <button
           onClick={() => setActiveTab('bagages')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition ${
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg transition ${
             activeTab === 'bagages'
-              ? 'bg-green-600 text-white shadow-lg'
-              : 'text-gray-600 hover:bg-gray-100'
+              ? 'bg-emerald-700 text-white shadow-lg shadow-emerald-700/20'
+              : 'text-stone-600 hover:bg-stone-50'
           }`}
         >
           <Package className="h-5 w-5" />
@@ -309,81 +316,73 @@ export default function QuotasPage() {
       </div>
 
       {/* Switch Tabs - Sens */}
-      <div className="bg-gray-100 rounded-xl shadow-sm mb-6 p-1 flex gap-1 max-w-md">
+      <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-1 flex gap-1 max-w-md mb-6">
         <button
           onClick={() => setSensTab('2131')}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
             sensTab === '2131'
-              ? 'bg-blue-600 text-white shadow-lg'
-              : 'text-gray-600 hover:bg-gray-200'
+              ? 'bg-amber-700 text-white shadow-lg shadow-amber-700/20'
+              : 'text-stone-600 hover:bg-stone-50'
           }`}
         >
           <ArrowLeftRight className="h-4 w-4" />
           Sens 2131 (Impair)
+          <span className="text-xs opacity-70">MGA → MNG</span>
         </button>
         <button
           onClick={() => setSensTab('2132')}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
             sensTab === '2132'
-              ? 'bg-blue-600 text-white shadow-lg'
-              : 'text-gray-600 hover:bg-gray-200'
+              ? 'bg-amber-700 text-white shadow-lg shadow-amber-700/20'
+              : 'text-stone-600 hover:bg-stone-50'
           }`}
         >
           <ArrowLeftRight className="h-4 w-4" />
           Sens 2132 (Pair)
+          <span className="text-xs opacity-70">MNG → MGA</span>
         </button>
       </div>
 
-      {/* Total indicateur - en lecture seule */}
-      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200 mb-6">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2 text-blue-800">
+      {/* Indicateur de total simplifié */}
+      <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-4 mb-6">
+        <div className="flex items-center gap-3">
+          <div className={`p-2 rounded-lg ${activeTab === 'tickets' ? 'bg-blue-100' : 'bg-amber-100'}`}>
             {activeTab === 'tickets' ? (
-              <>
-                <Users className="h-5 w-5" />
-                <span>
-                  Total quotas attribués : 
-                  <strong className="ml-1">
-                    {sensTab === '2131' ? totalTickets2131 : totalTickets2132}
-                  </strong>
-                  {sensTab === '2131' ? ' (2131)' : ' (2132)'}
-                </span>
-              </>
+              <Users className="h-5 w-5 text-blue-600" />
             ) : (
-              <>
-                <Package className="h-5 w-5" />
-                <span>
-                  Total quotas attribués : 
-                  <strong className="ml-1">
-                    {sensTab === '2131' ? totalBagages2131 : totalBagages2132}
-                  </strong>
-                  tonnes {sensTab === '2131' ? ' (2131)' : ' (2132)'}
-                </span>
-              </>
+              <Package className="h-5 w-5 text-amber-600" />
             )}
           </div>
-          <div className="text-sm text-gray-500">
-            {activeTab === 'tickets' ? (
-              <span>Répartis sur {gares.length} gares</span>
-            ) : (
-              <span>Répartis sur {communes.length} communes</span>
-            )}
+          <div>
+            <p className="text-sm text-stone-600">
+              Total quotas attribués <span className="font-semibold text-stone-800">{currentTotal}</span>
+              {activeTab === 'tickets' ? ' places' : ' tonnes'}
+            </p>
+            <p className="text-xs text-stone-400">
+              Répartis sur {activeTab === 'tickets' ? gares.length : communes.length} {activeTab === 'tickets' ? 'gares' : 'communes'}
+            </p>
           </div>
         </div>
       </div>
 
       {/* Quota Tickets */}
       {activeTab === 'tickets' && (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Ticket className="h-5 w-5 text-green-600" />
-              Quotas par gare - Sens {sensTab}
-            </h2>
+        <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 overflow-hidden">
+          <div className="px-5 py-3 border-b border-stone-200/60 bg-stone-50/80 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+                <Ticket className="h-4 w-4 text-emerald-600" />
+                Quotas par gare - Sens {sensTab}
+              </h2>
+              <span className="text-xs text-stone-400 flex items-center gap-1">
+                <ArrowLeftRight className="h-3 w-3" />
+                {sensTab === '2131' ? 'MGA → MNG' : 'MNG → MGA'}
+              </span>
+            </div>
             <button
               onClick={handleSaveTickets}
               disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-sm font-medium transition disabled:opacity-50 shadow-sm shadow-emerald-700/20"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Sauvegarder
@@ -392,29 +391,33 @@ export default function QuotasPage() {
           <div className="overflow-x-auto p-4">
             <table className="w-full">
               <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Gare</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Commune</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Quota {sensTab}</th>
+                <tr className="bg-stone-50/80">
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
+                    {sensTab === '2131' ? 'N°' : 'N° ↓'}
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Gare</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Code</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Commune</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-stone-600 uppercase tracking-wider">Quota {sensTab}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
-                {gares.map((gare) => {
+              <tbody className="divide-y divide-stone-200/60">
+                {sortedGares.map((gare) => {
                   const quota = quotaTickets.find(q => q.gare_num === gare.num);
                   const currentQuota = sensTab === '2131' ? quota?.quota_2131 || 0 : quota?.quota_2132 || 0;
                   return (
-                    <tr key={gare.num} className="hover:bg-gray-50 transition">
-                      <td className="px-4 py-2 text-sm text-gray-900">{gare.gare}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{gare.code}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{gare.commune_tutelle}</td>
-                      <td className="px-4 py-2 text-right">
+                    <tr key={gare.num} className="hover:bg-stone-50 transition">
+                      <td className="px-3 py-2.5 text-sm text-stone-400 font-mono">{gare.num}</td>
+                      <td className="px-3 py-2.5 text-sm text-stone-800">{gare.gare}</td>
+                      <td className="px-3 py-2.5 text-sm text-stone-600">{gare.code}</td>
+                      <td className="px-3 py-2.5 text-sm text-stone-600">{gare.commune_tutelle}</td>
+                      <td className="px-3 py-2.5 text-right">
                         <input
                           type="number"
                           min="0"
                           value={currentQuota}
                           onChange={(e) => handleTicketChange(gare.num, sensTab, parseInt(e.target.value) || 0)}
-                          className="w-24 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-right text-gray-900 font-medium"
+                          className="w-24 px-3 py-1.5 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-right text-stone-800 font-medium text-sm bg-white transition"
                         />
                       </td>
                     </tr>
@@ -428,16 +431,22 @@ export default function QuotasPage() {
 
       {/* Quota Bagages */}
       {activeTab === 'bagages' && (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Package className="h-5 w-5 text-orange-600" />
-              Quotas par commune - Sens {sensTab}
-            </h2>
+        <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 overflow-hidden">
+          <div className="px-5 py-3 border-b border-stone-200/60 bg-stone-50/80 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+                <Package className="h-4 w-4 text-emerald-600" />
+                Quotas par commune - Sens {sensTab}
+              </h2>
+              <span className="text-xs text-stone-400 flex items-center gap-1">
+                <ArrowLeftRight className="h-3 w-3" />
+                {sensTab === '2131' ? 'MGA → MNG' : 'MNG → MGA'}
+              </span>
+            </div>
             <button
               onClick={handleSaveBagages}
               disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-sm font-medium transition disabled:opacity-50 shadow-sm shadow-emerald-700/20"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Sauvegarder
@@ -446,33 +455,39 @@ export default function QuotasPage() {
           <div className="overflow-x-auto p-4">
             <table className="w-full">
               <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Commune tutelle</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Gares associées</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Quota (tonnes) {sensTab}</th>
+                <tr className="bg-stone-50/80">
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
+                    {sensTab === '2131' ? 'Ordre' : 'Ordre ↓'}
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Commune tutelle</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Gares associées</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-stone-600 uppercase tracking-wider">Quota (tonnes) {sensTab}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
-                {communes.map((commune) => {
+              <tbody className="divide-y divide-stone-200/60">
+                {sortedCommunes.map((commune, index) => {
                   const garesAssociees = gares.filter(g => g.commune_tutelle === commune);
                   const quota = quotaBagages.find(q => q.commune_tutelle === commune);
                   const currentQuota = sensTab === '2131' 
                     ? quota?.quota_tonnes_2131 || 0 
                     : quota?.quota_tonnes_2132 || 0;
                   return (
-                    <tr key={commune} className="hover:bg-gray-50 transition">
-                      <td className="px-4 py-2 text-sm text-gray-900 font-medium">{commune}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">
+                    <tr key={commune} className="hover:bg-stone-50 transition">
+                      <td className="px-3 py-2.5 text-sm text-stone-400 font-mono">
+                        {sensTab === '2131' ? index + 1 : sortedCommunes.length - index}
+                      </td>
+                      <td className="px-3 py-2.5 text-sm text-stone-800 font-medium">{commune}</td>
+                      <td className="px-3 py-2.5 text-sm text-stone-600">
                         {garesAssociees.map(g => g.code).join(', ')}
                       </td>
-                      <td className="px-4 py-2 text-right">
+                      <td className="px-3 py-2.5 text-right">
                         <input
                           type="number"
                           step="0.1"
                           min="0"
                           value={currentQuota}
                           onChange={(e) => handleBagageChange(commune, sensTab, parseFloat(e.target.value) || 0)}
-                          className="w-24 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-right text-gray-900 font-medium"
+                          className="w-24 px-3 py-1.5 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-right text-stone-800 font-medium text-sm bg-white transition"
                         />
                       </td>
                     </tr>

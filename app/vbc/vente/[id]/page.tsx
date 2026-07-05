@@ -1,4 +1,4 @@
-/* eslint-disable react-hooks/set-state-in-effect */
+ 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
@@ -7,14 +7,12 @@ import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import Navbar from '@/components/Navbar';
 import { 
-  ArrowLeft, Ticket, Package, Box, User, 
+  ArrowLeft, Ticket, User, 
   MapPin, Train, Calendar, AlertCircle, Loader2,
-  CheckCircle, Lock, AlertTriangle, Weight,
-  Briefcase
+  CheckCircle, Lock, AlertTriangle, Printer, Users,
+  X
 } from 'lucide-react';
-import { getVoyageDetails, getTarif, getLastTicketNumber, getTarifBagageColis } from '@/app/vbc/actions';
-
-type TicketType = 'voyageur' | 'voyageur_bagage' | 'bagage' | 'colis';
+import { getVoyageDetails, getTarif, getLastTicketNumber } from '@/app/vbc/actions';
 
 interface Voyage {
   id: string;
@@ -47,7 +45,12 @@ interface Gare {
   commune_tutelle: string;
 }
 
-export default function VentePage() {
+interface Ticket1ere {
+  arrivee: string;
+  depart: string;
+}
+
+export default function VBCVentePage() {
   const params = useParams();
   const router = useRouter();
   const voyageId = params.id as string;
@@ -58,22 +61,39 @@ export default function VentePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [ticketType, setTicketType] = useState<TicketType>('voyageur');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastCreatedTicket, setLastCreatedTicket] = useState<{
+    num_ticket: string;
+    nom_voyageur: string;
+    depart: string;
+    arrivee: string;
+    classe: string;
+    montant: number;
+  } | null>(null);
+  const [showCreatedTicket, setShowCreatedTicket] = useState(false);
+
+  // Popup states
+  const [popup, setPopup] = useState<{
+    type: 'error' | 'success' | 'warning' | 'info';
+    title: string;
+    message: string;
+    visible: boolean;
+  }>({
+    type: 'error',
+    title: '',
+    message: '',
+    visible: false,
+  });
 
   // Quotas
   const [quotas, setQuotas] = useState({
     tickets_max: 0,
     tickets_vendus: 0,
-    bagages_max: 0,
-    bagages_vendus: 0,
   });
 
-  // Places disponibles par classe
-  const [places, setPlaces] = useState({
-    places_1ere: 0,
-    places_2eme: 0,
-  });
+  // Places disponibles pour la 1ère classe pour la gare actuelle
+  const [places1ereDisponibles, setPlaces1ereDisponibles] = useState(0);
+  const [places1ereMax, setPlaces1ereMax] = useState(0);
 
   // États des formulaires
   const [voyageurForm, setVoyageurForm] = useState({
@@ -84,80 +104,30 @@ export default function VentePage() {
     classe: '2eme',
   });
 
-  const [bagageForm, setBagageForm] = useState({
-    nature: '',
-    arrivee: '',
-    usePoids: true,
-    useVolume: false,
-    poids: '15',
-    volume: '0.1',
-  });
-
-  const [colisForm, setColisForm] = useState({
-    nature: '',
-    arrivee: '',
-    usePoids: true,
-    useVolume: false,
-    poids: '15',
-    volume: '0.1',
-    nom_expediteur: '',
-    num_tel_expediteur: '03',
-    nom_destinataire: '',
-    num_tel_destinataire: '03',
-  });
-
   // Calculs des montants
   const [tarifInfo, setTarifInfo] = useState<{ tarif_1ere: number; tarif_2eme: number; distance: number } | null>(null);
   const [montantVoyageur, setMontantVoyageur] = useState(0);
-  const [montantBagage, setMontantBagage] = useState(0);
-  const [montantColis, setMontantColis] = useState(0);
-  const [montantTotal, setMontantTotal] = useState(0);
   const [numTicketSequential, setNumTicketSequential] = useState(1);
-  const [tarifKg, setTarifKg] = useState<{ tarif_vente: number; part_madarail: number } | null>(null);
-  const [tarifM3, setTarifM3] = useState<{ tarif_vente: number; part_madarail: number } | null>(null);
 
-  // Fonction pour calculer le poids équivalent (poids + volume * 500) - utilisé uniquement pour le quota
-  const getPoidsEquivalent = (poids: number, volume: number) => {
-    return poids + (volume * 500);
+  // Fonctions pour les popups
+  const showPopup = (type: 'error' | 'success' | 'warning' | 'info', title: string, message: string) => {
+    setPopup({ type, title, message, visible: true });
+    if (type === 'success') {
+      setTimeout(() => {
+        setPopup(prev => ({ ...prev, visible: false }));
+      }, 5000);
+    }
   };
 
-  // Calcul du quota restant pour les bagages
-  const getBagageRestant = () => {
-    return quotas.bagages_max - quotas.bagages_vendus;
+  const closePopup = () => {
+    setPopup(prev => ({ ...prev, visible: false }));
   };
 
   // Vérifier si les quotas sont atteints
   const isTicketsFull = quotas.tickets_max > 0 && quotas.tickets_vendus >= quotas.tickets_max;
-  const isBagagesFull = quotas.bagages_max > 0 && quotas.bagages_vendus >= quotas.bagages_max;
 
-  // Vérifier si les classes sont pleines
-  const is1ereFull = places.places_1ere <= 0;
-  const is2emeFull = places.places_2eme <= 0;
-  const isAllClassesFull = is1ereFull && is2emeFull;
-
-  // Vérifier si le poids dépasse le quota restant pour le bagage
-  const isPoidsDepasseQuotaBagage = () => {
-    if (ticketType === 'bagage' || ticketType === 'voyageur_bagage') {
-      const restant = getBagageRestant();
-      const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
-      const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
-      const poidsEquivalent = getPoidsEquivalent(poids, volume);
-      return restant > 0 && poidsEquivalent > restant;
-    }
-    return false;
-  };
-
-  // Vérifier si le poids dépasse le quota restant pour le colis
-  const isPoidsDepasseQuotaColis = () => {
-    if (ticketType === 'colis') {
-      const restant = getBagageRestant();
-      const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
-      const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
-      const poidsEquivalent = getPoidsEquivalent(poids, volume);
-      return restant > 0 && poidsEquivalent > restant;
-    }
-    return false;
-  };
+  // Vérifier si la 1ère classe est disponible
+  const is1ereAvailable = places1ereDisponibles > 0;
 
   // Fonction pour obtenir les gares disponibles selon le sens du voyage
   const getAvailableGares = () => {
@@ -196,41 +166,89 @@ export default function VentePage() {
     const departIndex = gareCodes.indexOf(voyage.gare_depart_detail?.code || '');
     const arriveeIndex = gareCodes.indexOf(voyage.gare_arrivee_detail?.code || '');
 
-    // ✅ Si la gare du VBC n'est pas sur le trajet, il ne peut pas vendre
-    // Le trajet est entre departIndex et arriveeIndex
     const startIndex = Math.min(departIndex, arriveeIndex);
     const endIndex = Math.max(departIndex, arriveeIndex);
-    
     if (currentIndex < startIndex || currentIndex > endIndex) {
       return [];
     }
 
-    // ✅ Sens impair (2131): direction MGA -> MNG (Nord)
     if (voyage.sens === '2131') {
-      // Le VBC doit être avant l'arrivée
       if (currentIndex >= arriveeIndex) {
         return [];
       }
-      // Gares après la gare du VBC jusqu'à l'arrivée (exclure la gare actuelle)
       return allGares.slice(currentIndex + 1, arriveeIndex + 1);
-    } 
-    // ✅ Sens pair (2132): direction MNG -> MGA (Sud)
-    else {
-      // Pour le sens pair, le train va vers le Sud (indices décroissants)
-      // Le VBC vend vers les gares avant lui dans l'ordre (indices plus petits)
-      // Exemple: VBC à BKV (15) vend vers ANV (14), RZK (13), ..., jusqu'à arriveeIndex (7)
-      
-      // Le VBC doit être après l'arrivée (dans l'ordre des indices)
+    } else {
       if (currentIndex <= arriveeIndex) {
         return [];
       }
-      // Gares entre l'arrivée et la gare du VBC (exclure la gare actuelle)
-      // Pour le sens Sud, le VBC vend vers les gares plus petites que lui
       return allGares.slice(arriveeIndex, currentIndex);
     }
   };
 
   const availableGares = getAvailableGares();
+
+  // Récupérer les places disponibles pour la 1ère classe pour la gare actuelle
+  useEffect(() => {
+    const fetchPlaces1ere = async () => {
+      if (!voyage || !gare) return;
+
+      try {
+        const placesMax = voyage.formation_voiture * 60;
+        setPlaces1ereMax(placesMax);
+
+        // Récupérer tous les tickets 1ère classe vendus avec leur destination
+        const { data: tickets1ere } = await supabase
+          .from('ticket_voyageur')
+          .select('arrivee, depart')
+          .eq('voyage_id', voyage.id)
+          .eq('classe', '1ere');
+
+        if (!tickets1ere || tickets1ere.length === 0) {
+          setPlaces1ereDisponibles(placesMax);
+          return;
+        }
+
+        // Obtenir l'index de la gare actuelle
+        const allGares = [
+          'MGA', 'ADB', 'FNV', 'ABV', 'ATY', 'ADK', 'ABH', 'JRM', 'LHD', 'SKM',
+          'FNS', 'MGB', 'RZK', 'ANV', 'BKV', 'ABL', 'VVN', 'ZIN', 'ADR', 'TPN',
+          'TPL', 'AKF', 'VTZ', 'IVD', 'MNG'
+        ];
+        const currentIndex = allGares.indexOf(gare.code);
+
+        // Compter les places occupées pour le segment actuel
+        let placesOccupees = 0;
+
+        for (const ticket of tickets1ere) {
+          const departIndex = allGares.indexOf(ticket.depart);
+          const arriveeIndex = allGares.indexOf(ticket.arrivee);
+
+          // Le voyageur occupe une place entre sa gare de départ et sa gare d'arrivée
+          // Pour le sens 2131 (MGA → MNG) : de departIndex à arriveeIndex-1
+          // Pour le sens 2132 (MNG → MGA) : de arriveeIndex+1 à departIndex
+          if (voyage.sens === '2131') {
+            // Le voyageur est dans le train si la gare actuelle est entre depart et arrivee (exclu)
+            if (currentIndex >= departIndex && currentIndex < arriveeIndex) {
+              placesOccupees++;
+            }
+          } else {
+            // Sens 2132 (MNG → MGA)
+            if (currentIndex > arriveeIndex && currentIndex <= departIndex) {
+              placesOccupees++;
+            }
+          }
+        }
+
+        setPlaces1ereDisponibles(Math.max(0, placesMax - placesOccupees));
+
+      } catch (err) {
+        console.error('Erreur chargement places 1ère classe:', err);
+        setPlaces1ereDisponibles(voyage.formation_voiture * 60);
+      }
+    };
+
+    fetchPlaces1ere();
+  }, [voyage, gare]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -240,7 +258,7 @@ export default function VentePage() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          setError('Non authentifié');
+          showPopup('error', 'Erreur d\'authentification', 'Vous devez être connecté pour effectuer cette action.');
           setLoading(false);
           return;
         }
@@ -252,7 +270,7 @@ export default function VentePage() {
           .single();
 
         if (!profileData) {
-          setError('Profil non trouvé');
+          showPopup('error', 'Profil non trouvé', 'Impossible de récupérer votre profil.');
           setLoading(false);
           return;
         }
@@ -270,7 +288,7 @@ export default function VentePage() {
 
         const result = await getVoyageDetails(voyageId);
         if (result.error) {
-          setError(result.error);
+          showPopup('error', 'Erreur', result.error);
           setLoading(false);
           return;
         }
@@ -278,32 +296,13 @@ export default function VentePage() {
         if (result.quotas) {
           setQuotas(result.quotas);
         }
-        if (result.places) {
-          setPlaces(result.places);
-        }
 
         const lastNum = await getLastTicketNumber(voyageId, profileData.gare_ref);
         setNumTicketSequential(lastNum);
 
-        const kgResult = await getTarifBagageColis('kg');
-        if (kgResult.tarif) {
-          setTarifKg({
-            tarif_vente: kgResult.tarif.tarif_vente,
-            part_madarail: kgResult.tarif.part_madarail,
-          });
-        }
-
-        const m3Result = await getTarifBagageColis('m3');
-        if (m3Result.tarif) {
-          setTarifM3({
-            tarif_vente: m3Result.tarif.tarif_vente,
-            part_madarail: m3Result.tarif.part_madarail,
-          });
-        }
-
       } catch (err) {
         console.error('Erreur:', err);
-        setError('Erreur lors du chargement des données');
+        showPopup('error', 'Erreur', 'Une erreur est survenue lors du chargement des données.');
       }
 
       setLoading(false);
@@ -341,124 +340,6 @@ export default function VentePage() {
     }
   }, [voyageurForm.arrivee, voyageurForm.classe, gare]);
 
-  // Calcul du montant bagage (avec tarifs séparés pour poids et volume)
-  useEffect(() => {
-    let montant = 0;
-    const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
-    const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
-
-    // Prix basé sur les tarifs réels de la base de données
-    if (tarifKg && poids > 0) {
-      montant += poids * tarifKg.tarif_vente;
-    }
-    if (tarifM3 && volume > 0) {
-      montant += volume * tarifM3.tarif_vente;
-    }
-    setMontantBagage(montant);
-  }, [bagageForm.poids, bagageForm.volume, bagageForm.usePoids, bagageForm.useVolume, tarifKg, tarifM3]);
-
-  // Calcul du montant colis (avec tarifs séparés pour poids et volume)
-  useEffect(() => {
-    let montant = 0;
-    const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
-    const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
-
-    // Prix basé sur les tarifs réels de la base de données
-    if (tarifKg && poids > 0) {
-      montant += poids * tarifKg.tarif_vente;
-    }
-    if (tarifM3 && volume > 0) {
-      montant += volume * tarifM3.tarif_vente;
-    }
-    setMontantColis(montant);
-  }, [colisForm.poids, colisForm.volume, colisForm.usePoids, colisForm.useVolume, tarifKg, tarifM3]);
-
-  // Calcul du montant total pour Voyageur + Bagage
-  useEffect(() => {
-    if (ticketType === 'voyageur_bagage') {
-      setMontantTotal(montantVoyageur + montantBagage);
-    } else {
-      setMontantTotal(0);
-    }
-  }, [montantVoyageur, montantBagage, ticketType]);
-
-  // Formatage du numéro de téléphone (03X XX XXX XX)
-  const formatPhoneNumber = (value: string) => {
-    let cleaned = value.replace(/\D/g, '');
-    
-    if (cleaned.length === 0) return '03';
-    
-    if (!cleaned.startsWith('03')) {
-      cleaned = '03' + cleaned.substring(2);
-    }
-    
-    if (cleaned.length > 10) {
-      cleaned = cleaned.substring(0, 10);
-    }
-    
-    if (cleaned.length <= 3) {
-      return cleaned;
-    } else if (cleaned.length <= 5) {
-      return `${cleaned.slice(0, 3)} ${cleaned.slice(3)}`;
-    } else if (cleaned.length <= 8) {
-      return `${cleaned.slice(0, 3)} ${cleaned.slice(3, 5)} ${cleaned.slice(5)}`;
-    } else {
-      return `${cleaned.slice(0, 3)} ${cleaned.slice(3, 5)} ${cleaned.slice(5, 8)} ${cleaned.slice(8, 10)}`;
-    }
-  };
-
-  const handlePhoneChange = (field: 'expediteur' | 'destinataire', value: string) => {
-    const cleaned = value.replace(/\D/g, '');
-    if (cleaned.length === 0) {
-      if (field === 'expediteur') {
-        setColisForm({ ...colisForm, num_tel_expediteur: '03' });
-      } else {
-        setColisForm({ ...colisForm, num_tel_destinataire: '03' });
-      }
-      return;
-    }
-    
-    const formatted = formatPhoneNumber(value);
-    if (field === 'expediteur') {
-      setColisForm({ ...colisForm, num_tel_expediteur: formatted });
-    } else {
-      setColisForm({ ...colisForm, num_tel_destinataire: formatted });
-    }
-  };
-
-  // Handlers pour les checkbox poids/volume (s'excluent mutuellement)
-  const handleBagagePoidsChange = (checked: boolean) => {
-    if (checked) {
-      setBagageForm({ ...bagageForm, usePoids: true, useVolume: false });
-    } else {
-      setBagageForm({ ...bagageForm, usePoids: false });
-    }
-  };
-
-  const handleBagageVolumeChange = (checked: boolean) => {
-    if (checked) {
-      setBagageForm({ ...bagageForm, useVolume: true, usePoids: false });
-    } else {
-      setBagageForm({ ...bagageForm, useVolume: false });
-    }
-  };
-
-  const handleColisPoidsChange = (checked: boolean) => {
-    if (checked) {
-      setColisForm({ ...colisForm, usePoids: true, useVolume: false });
-    } else {
-      setColisForm({ ...colisForm, usePoids: false });
-    }
-  };
-
-  const handleColisVolumeChange = (checked: boolean) => {
-    if (checked) {
-      setColisForm({ ...colisForm, useVolume: true, usePoids: false });
-    } else {
-      setColisForm({ ...colisForm, useVolume: false });
-    }
-  };
-
   // Génération du numéro de ticket
   const generateTicketNumber = (prefix: string) => {
     const now = new Date();
@@ -479,123 +360,44 @@ export default function VentePage() {
     if (!voyageurForm.nom.trim()) return 'Nom du voyageur requis';
     if (!voyageurForm.cin.trim() || voyageurForm.cin.length !== 12) return 'CIN doit contenir 12 chiffres';
     if (!voyageurForm.arrivee) return 'Arrivée requise';
-    if (voyageurForm.classe === '1ere' && is1ereFull) return '1ère classe complète';
-    if (voyageurForm.classe === '2eme' && is2emeFull) return '2ème classe complète';
-    return null;
-  };
-
-  const validateBagage = () => {
-    if (!bagageForm.nature.trim()) return 'Nature du bagage requise';
-    if (!bagageForm.arrivee) return 'Arrivée requise';
-    if (!bagageForm.usePoids && !bagageForm.useVolume) return 'Sélectionnez au moins un mode (Poids ou Volume)';
-    
-    const restant = getBagageRestant();
-    const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
-    const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
-    const poidsEquivalent = getPoidsEquivalent(poids, volume);
-    
-    if (bagageForm.usePoids && poids <= 0) return 'Poids invalide';
-    if (bagageForm.useVolume && volume <= 0) return 'Volume invalide';
-    if (poidsEquivalent > restant) {
-      return `Le poids équivalent (${poidsEquivalent.toFixed(1)} kg) dépasse le quota restant (${restant.toFixed(1)} kg)`;
-    }
-    return null;
-  };
-
-  const validateColis = () => {
-    if (!colisForm.nature.trim()) return 'Nature du colis requise';
-    if (!colisForm.arrivee) return 'Arrivée requise';
-    if (!colisForm.usePoids && !colisForm.useVolume) return 'Sélectionnez au moins un mode (Poids ou Volume)';
-    
-    const restant = getBagageRestant();
-    const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
-    const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
-    const poidsEquivalent = getPoidsEquivalent(poids, volume);
-    
-    if (colisForm.usePoids && poids <= 0) return 'Poids invalide';
-    if (colisForm.useVolume && volume <= 0) return 'Volume invalide';
-    if (poidsEquivalent > restant) {
-      return `Le poids équivalent (${poidsEquivalent.toFixed(1)} kg) dépasse le quota restant (${restant.toFixed(1)} kg)`;
-    }
-    if (!colisForm.nom_expediteur.trim()) return 'Nom expéditeur requis';
-    if (!colisForm.num_tel_expediteur.trim() || colisForm.num_tel_expediteur.replace(/\s/g, '').length < 10) return 'Téléphone expéditeur invalide (10 chiffres)';
-    if (!colisForm.nom_destinataire.trim()) return 'Nom destinataire requis';
-    if (!colisForm.num_tel_destinataire.trim() || colisForm.num_tel_destinataire.replace(/\s/g, '').length < 10) return 'Téléphone destinataire invalide (10 chiffres)';
+    if (voyageurForm.classe === '1ere' && !is1ereAvailable) return '1ère classe non disponible';
     return null;
   };
 
   const handleSubmit = async () => {
     setError(null);
     setSuccess(null);
+    setLastCreatedTicket(null);
+    setShowCreatedTicket(false);
 
     if (!voyage || !profile || !gare) {
-      setError('Données manquantes');
+      showPopup('error', 'Données manquantes', 'Impossible de créer le ticket. Veuillez réessayer.');
+      return;
+    }
+
+    // Vérifier si la vente est désactivée
+    const { data: desactivee } = await supabase
+      .from('vente_desactivee')
+      .select('id')
+      .eq('voyage_id', voyage.id)
+      .eq('gare_num', gare.num)
+      .maybeSingle();
+
+    if (desactivee) {
+      showPopup('error', 'Vente désactivée', 'La vente est désactivée pour ce voyage.');
       return;
     }
 
     // Vérifier les quotas
-    if (ticketType === 'voyageur' || ticketType === 'voyageur_bagage') {
-      if (isTicketsFull) {
-        setError('Quota de tickets voyageurs atteint pour ce voyage');
-        return;
-      }
-      if (is1ereFull && voyageurForm.classe === '1ere') {
-        setError('1ère classe complète');
-        return;
-      }
-      if (is2emeFull && voyageurForm.classe === '2eme') {
-        setError('2ème classe complète');
-        return;
-      }
+    if (isTicketsFull) {
+      showPopup('error', 'Quota atteint', 'Quota de tickets voyageurs atteint pour ce voyage.');
+      return;
     }
 
-    if (ticketType === 'bagage' || ticketType === 'voyageur_bagage' || ticketType === 'colis') {
-      if (isBagagesFull) {
-        setError('Quota de bagages atteint pour ce voyage');
-        return;
-      }
-      
-      const restant = getBagageRestant();
-      let poidsEquivalent = 0;
-      if (ticketType === 'bagage' || ticketType === 'voyageur_bagage') {
-        const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
-        const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
-        poidsEquivalent = getPoidsEquivalent(poids, volume);
-      } else if (ticketType === 'colis') {
-        const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
-        const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
-        poidsEquivalent = getPoidsEquivalent(poids, volume);
-      }
-      
-      if (poidsEquivalent > restant) {
-        setError(`Le poids équivalent (${poidsEquivalent.toFixed(1)} kg) dépasse le quota restant (${restant.toFixed(1)} kg)`);
-        return;
-      }
-    }
-
-    let validationError = null;
-    if (ticketType === 'voyageur' || ticketType === 'voyageur_bagage') {
-      validationError = validateVoyageur();
-      if (validationError) {
-        setError(validationError);
-        return;
-      }
-    }
-
-    if (ticketType === 'bagage' || ticketType === 'voyageur_bagage') {
-      validationError = validateBagage();
-      if (validationError) {
-        setError(validationError);
-        return;
-      }
-    }
-
-    if (ticketType === 'colis') {
-      validationError = validateColis();
-      if (validationError) {
-        setError(validationError);
-        return;
-      }
+    const validationError = validateVoyageur();
+    if (validationError) {
+      showPopup('error', 'Erreur de validation', validationError);
+      return;
     }
 
     setIsSubmitting(true);
@@ -605,9 +407,7 @@ export default function VentePage() {
       const voyageIdStr = voyage.id;
 
       const departCode = gare.code;
-      const arriveeCode = ticketType === 'voyageur' || ticketType === 'voyageur_bagage' 
-        ? voyageurForm.arrivee 
-        : bagageForm.arrivee || colisForm.arrivee;
+      const arriveeCode = voyageurForm.arrivee;
       
       const canton = `${departCode}-${arriveeCode}`;
       const tarifResult = await getTarif(canton);
@@ -615,186 +415,71 @@ export default function VentePage() {
       let montant = 0;
       let partMadarail = 0;
 
-      // Traitement du ticket voyageur
-      if (ticketType === 'voyageur' || ticketType === 'voyageur_bagage') {
-        if (tarifResult.tarif) {
-          const tarif = voyageurForm.classe === '1ere' 
-            ? tarifResult.tarif.tarif_2eme_classe
-            : tarifResult.tarif.tarif_1ere_classe;
-          partMadarail = tarif;
-          if (tarif === 5800) montant = 7000;
-          else if (tarif === 11600) montant = 14000;
-          else if (tarif === 13800) montant = 15000;
-          else if (tarif === 8800) montant = 10000;
-          else if (tarif === 22600) montant = 25000;
-        }
-
-        const numTicket = generateTicketNumber('V');
-        const { error: ticketError } = await supabase
-          .from('ticket_voyageur')
-          .insert({
-            num_ticket: numTicket,
-            nom_voyageur: voyageurForm.nom,
-            cin: voyageurForm.cin,
-            mineur: voyageurForm.mineur,
-            depart: gare.code,
-            arrivee: voyageurForm.arrivee,
-            classe: voyageurForm.classe,
-            montant: montant,
-            part_madarail: partMadarail,
-            voyage_id: voyageIdStr,
-            gare_ref: gareRef,
-          });
-
-        if (ticketError) {
-          console.error('Erreur ticket voyageur:', ticketError);
-          setError('Erreur lors de la création du ticket voyageur');
-          setIsSubmitting(false);
-          return;
-        }
-
-        setNumTicketSequential(numTicketSequential + 1);
-        setSuccess(`Ticket voyageur ${numTicket} créé avec succès !`);
+      if (tarifResult.tarif) {
+        const tarif = voyageurForm.classe === '1ere' 
+          ? tarifResult.tarif.tarif_2eme_classe
+          : tarifResult.tarif.tarif_1ere_classe;
+        partMadarail = tarif;
+        if (tarif === 5800) montant = 7000;
+        else if (tarif === 11600) montant = 14000;
+        else if (tarif === 13800) montant = 15000;
+        else if (tarif === 8800) montant = 10000;
+        else if (tarif === 22600) montant = 25000;
       }
 
-      // Traitement du ticket bagage
-      if (ticketType === 'bagage' || ticketType === 'voyageur_bagage') {
-        const poids = bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0;
-        const volume = bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0;
-        
-        let montantBag = 0;
-        let partMadarailBag = 0;
+      const numTicket = generateTicketNumber('V');
+      const { error: ticketError } = await supabase
+        .from('ticket_voyageur')
+        .insert({
+          num_ticket: numTicket,
+          nom_voyageur: voyageurForm.nom,
+          cin: voyageurForm.cin,
+          mineur: voyageurForm.mineur,
+          depart: gare.code,
+          arrivee: voyageurForm.arrivee,
+          classe: voyageurForm.classe,
+          montant: montant,
+          part_madarail: partMadarail,
+          voyage_id: voyageIdStr,
+          gare_ref: gareRef,
+        });
 
-        if (tarifKg && poids > 0) {
-          montantBag += poids * tarifKg.tarif_vente;
-          partMadarailBag += poids * tarifKg.part_madarail;
-        }
-        if (tarifM3 && volume > 0) {
-          montantBag += volume * tarifM3.tarif_vente;
-          partMadarailBag += volume * tarifM3.part_madarail;
-        }
-
-        const poidsEquivalent = getPoidsEquivalent(poids, volume);
-
-        const numTicket = generateTicketNumber('B');
-        const { error: bagageError } = await supabase
-          .from('ticket_bagage')
-          .insert({
-            num_ticket: numTicket,
-            nature: bagageForm.nature,
-            depart: gare.code,
-            arrivee: bagageForm.arrivee,
-            poids: poids,
-            volume: volume,
-            poids_volume: `${poids}kg / ${volume}m3`,
-            montant: montantBag,
-            part_madarail: partMadarailBag,
-            voyage_id: voyageIdStr,
-            gare_ref: gareRef,
-          });
-
-        if (bagageError) {
-          console.error('Erreur ticket bagage:', bagageError);
-          setError('Erreur lors de la création du ticket bagage');
-          setIsSubmitting(false);
-          return;
-        }
-
-        setNumTicketSequential(numTicketSequential + 1);
-        setSuccess(`Ticket bagage ${numTicket} créé avec succès !`);
-
-        setQuotas(prev => ({
-          ...prev,
-          bagages_vendus: prev.bagages_vendus + poidsEquivalent,
-        }));
+      if (ticketError) {
+        console.error('Erreur ticket voyageur:', ticketError);
+        showPopup('error', 'Erreur', 'Erreur lors de la création du ticket voyageur.');
+        setIsSubmitting(false);
+        return;
       }
 
-      // Traitement du ticket colis
-      if (ticketType === 'colis') {
-        const poids = colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0;
-        const volume = colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0;
-        
-        let montantCol = 0;
-        let partMadarailCol = 0;
-
-        if (tarifKg && poids > 0) {
-          montantCol += poids * tarifKg.tarif_vente;
-          partMadarailCol += poids * tarifKg.part_madarail;
-        }
-        if (tarifM3 && volume > 0) {
-          montantCol += volume * tarifM3.tarif_vente;
-          partMadarailCol += volume * tarifM3.part_madarail;
-        }
-
-        const poidsEquivalent = getPoidsEquivalent(poids, volume);
-
-        const numTicket = generateTicketNumber('C');
-        const { error: colisError } = await supabase
-          .from('ticket_colis')
-          .insert({
-            num_ticket: numTicket,
-            nature: colisForm.nature,
-            depart: gare.code,
-            arrivee: colisForm.arrivee,
-            poids: poids,
-            volume: volume,
-            poids_volume: `${poids}kg / ${volume}m3`,
-            montant: montantCol,
-            part_madarail: partMadarailCol,
-            nom_expediteur: colisForm.nom_expediteur,
-            num_tel_expediteur: colisForm.num_tel_expediteur,
-            nom_destinataire: colisForm.nom_destinataire,
-            num_tel_destinataire: colisForm.num_tel_destinataire,
-            voyage_id: voyageIdStr,
-            gare_ref: gareRef,
-          });
-
-        if (colisError) {
-          console.error('Erreur ticket colis:', colisError);
-          setError('Erreur lors de la création du ticket colis');
-          setIsSubmitting(false);
-          return;
-        }
-
-        setNumTicketSequential(numTicketSequential + 1);
-        setSuccess(`Ticket colis ${numTicket} créé avec succès !`);
-
-        setQuotas(prev => ({
-          ...prev,
-          bagages_vendus: prev.bagages_vendus + poidsEquivalent,
-        }));
-      }
-
-      // Réinitialiser les formulaires
-      setVoyageurForm({ nom: '', cin: '', mineur: false, arrivee: '', classe: '2eme' });
-      setBagageForm({ nature: '', arrivee: '', usePoids: true, useVolume: false, poids: '15', volume: '0.1' });
-      setColisForm({ 
-        nature: '', arrivee: '', usePoids: true, useVolume: false, poids: '15', volume: '0.1',
-        nom_expediteur: '', num_tel_expediteur: '03',
-        nom_destinataire: '', num_tel_destinataire: '03'
+      setLastCreatedTicket({
+        num_ticket: numTicket,
+        nom_voyageur: voyageurForm.nom,
+        depart: gare.code,
+        arrivee: voyageurForm.arrivee,
+        classe: voyageurForm.classe,
+        montant: montant,
       });
+      setShowCreatedTicket(true);
 
-      if (ticketType === 'voyageur' || ticketType === 'voyageur_bagage') {
-        setQuotas(prev => ({
-          ...prev,
-          tickets_vendus: prev.tickets_vendus + 1,
-        }));
-        if (voyageurForm.classe === '1ere') {
-          setPlaces(prev => ({
-            ...prev,
-            places_1ere: prev.places_1ere - 1,
-          }));
-        } else {
-          setPlaces(prev => ({
-            ...prev,
-            places_2eme: prev.places_2eme - 1,
-          }));
-        }
+      setNumTicketSequential(numTicketSequential + 1);
+      showPopup('success', 'Ticket créé !', `Ticket voyageur ${numTicket} créé avec succès !`);
+
+      // Réinitialiser le formulaire
+      setVoyageurForm({ nom: '', cin: '', mineur: false, arrivee: '', classe: '2eme' });
+
+      setQuotas(prev => ({
+        ...prev,
+        tickets_vendus: prev.tickets_vendus + 1,
+      }));
+      
+      // Mettre à jour les places 1ère classe
+      if (voyageurForm.classe === '1ere') {
+        setPlaces1ereDisponibles(prev => Math.max(0, prev - 1));
       }
 
     } catch (err) {
       console.error('Erreur:', err);
-      setError('Erreur lors de la création du ticket');
+      showPopup('error', 'Erreur', 'Une erreur est survenue lors de la création du ticket.');
     }
 
     setIsSubmitting(false);
@@ -802,10 +487,10 @@ export default function VentePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-stone-100">
         <Navbar />
-        <div className="flex items-center justify-center h-96">
-          <Loader2 className="h-12 w-12 text-orange-600 animate-spin" />
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-12 w-12 text-amber-600 animate-spin" />
         </div>
       </div>
     );
@@ -813,7 +498,7 @@ export default function VentePage() {
 
   if (error || !voyage || !profile || !gare) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-stone-100">
         <Navbar />
         <div className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
@@ -821,7 +506,7 @@ export default function VentePage() {
           </div>
           <button
             onClick={() => router.push('/vbc')}
-            className="mt-4 inline-flex items-center gap-2 text-orange-600 hover:text-orange-700"
+            className="mt-4 inline-flex items-center gap-2 text-amber-600 hover:text-amber-700"
           >
             <ArrowLeft className="h-4 w-4" />
             Retour
@@ -831,214 +516,114 @@ export default function VentePage() {
     );
   }
 
-  const bagageRestant = getBagageRestant();
+  const previewTicketNumber = generateTicketNumber('V');
+
+  // Données pour le preview en temps réel
+  const currentNom = voyageurForm.nom;
+  const currentArrivee = voyageurForm.arrivee;
+  const currentClasse = voyageurForm.classe;
+  const currentMontant = montantVoyageur;
+
+  // Utiliser les données du ticket créé ou les données en temps réel
+  const displayNom = showCreatedTicket && lastCreatedTicket ? lastCreatedTicket.nom_voyageur : currentNom;
+  const displayArrivee = showCreatedTicket && lastCreatedTicket ? lastCreatedTicket.arrivee : currentArrivee;
+  const displayClasse = showCreatedTicket && lastCreatedTicket ? lastCreatedTicket.classe : currentClasse;
+  const displayMontant = showCreatedTicket && lastCreatedTicket ? lastCreatedTicket.montant : currentMontant;
+  const displayNumTicket = showCreatedTicket && lastCreatedTicket ? lastCreatedTicket.num_ticket : previewTicketNumber;
+  const isDisplayCreated = showCreatedTicket && lastCreatedTicket;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-stone-100">
       <Navbar />
       
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* En-tête */}
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between">
           <div>
             <button
               onClick={() => router.push('/vbc')}
-              className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-2"
+              className="inline-flex items-center gap-2 text-stone-500 hover:text-stone-700 transition text-sm mb-1"
             >
               <ArrowLeft className="h-4 w-4" />
               Retour
             </button>
-            <h1 className="text-2xl font-bold text-gray-900">Vente de tickets</h1>
-            <p className="text-gray-600">
+            <h1 className="text-xl font-serif font-bold text-stone-800">Vente de tickets</h1>
+            <p className="text-stone-600 text-xs">
               {voyage.gare_depart_detail?.code} → {voyage.gare_arrivee_detail?.code} • 
               {new Date(voyage.date_voyage).toLocaleDateString('fr-FR')}
             </p>
           </div>
-          <div className="text-right text-sm text-gray-500">
+          <div className="text-right text-xs text-stone-500">
             <p>Gare: {gare.code} - {gare.gare}</p>
             <p>PK: {gare.pk}</p>
           </div>
         </div>
 
-        {/* Quotas */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div className={`bg-white rounded-xl shadow-sm p-4 border-l-4 ${isTicketsFull ? 'border-red-500' : 'border-green-500'}`}>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Quota Tickets Voyageurs</p>
-                <p className="text-lg font-bold">
-                  {quotas.tickets_vendus} / {quotas.tickets_max}
-                </p>
+        {/* Quota Tickets */}
+        <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-4 mb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-stone-500 font-medium">Quota Tickets Voyageurs</p>
+              <p className="text-lg font-bold text-stone-800">
+                {quotas.tickets_vendus} / {quotas.tickets_max}
+              </p>
+            </div>
+            {isTicketsFull ? (
+              <div className="flex items-center gap-1.5 text-red-600 text-sm font-medium">
+                <Lock className="h-4 w-4" />
+                <span>Complet</span>
               </div>
-              {isTicketsFull ? (
-                <div className="flex items-center gap-1 text-red-600 text-sm">
-                  <Lock className="h-4 w-4" />
-                  <span>Complet</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 text-green-600 text-sm">
-                  <Ticket className="h-4 w-4" />
-                  <span>{quotas.tickets_max - quotas.tickets_vendus} restants</span>
-                </div>
-              )}
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-              <div 
-                className={`h-2 rounded-full transition-all ${isTicketsFull ? 'bg-red-500' : 'bg-green-500'}`}
-                style={{ width: `${quotas.tickets_max > 0 ? (quotas.tickets_vendus / quotas.tickets_max) * 100 : 0}%` }}
-              />
-            </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-emerald-600 text-sm font-medium">
+                <Ticket className="h-4 w-4" />
+                <span>{quotas.tickets_max - quotas.tickets_vendus} restants</span>
+              </div>
+            )}
           </div>
-
-          <div className={`bg-white rounded-xl shadow-sm p-4 border-l-4 ${isBagagesFull ? 'border-red-500' : 'border-blue-500'}`}>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Quota Bagages (poids équivalent)</p>
-                <p className="text-lg font-bold">
-                  {quotas.bagages_vendus.toFixed(1)} / {quotas.bagages_max} kg
-                </p>
-              </div>
-              {isBagagesFull ? (
-                <div className="flex items-center gap-1 text-red-600 text-sm">
-                  <Lock className="h-4 w-4" />
-                  <span>Complet</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 text-blue-600 text-sm">
-                  <Package className="h-4 w-4" />
-                  <span>{(quotas.bagages_max - quotas.bagages_vendus).toFixed(1)} kg restants</span>
-                </div>
-              )}
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-              <div 
-                className={`h-2 rounded-full transition-all ${isBagagesFull ? 'bg-red-500' : 'bg-blue-500'}`}
-                style={{ width: `${quotas.bagages_max > 0 ? (quotas.bagages_vendus / quotas.bagages_max) * 100 : 0}%` }}
-              />
-            </div>
+          <div className="w-full bg-stone-200 rounded-full h-1.5 mt-1.5">
+            <div 
+              className={`h-1.5 rounded-full transition-all ${isTicketsFull ? 'bg-red-500' : 'bg-amber-500'}`}
+              style={{ width: `${quotas.tickets_max > 0 ? (quotas.tickets_vendus / quotas.tickets_max) * 100 : 0}%` }}
+            />
           </div>
         </div>
 
-        {/* Alertes de quotas atteints */}
+        {/* Alertes */}
         {isTicketsFull && (
-          <div className="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-            <span>Le quota de tickets voyageurs est atteint pour ce voyage. Vous ne pouvez plus vendre de tickets voyageurs.</span>
-          </div>
-        )}
-        {isBagagesFull && (
-          <div className="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-            <span>Le quota de bagages est atteint pour ce voyage. Vous ne pouvez plus vendre de tickets bagages.</span>
-          </div>
-        )}
-        {isAllClassesFull && (
-          <div className="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-            <span>Toutes les classes sont complètes pour ce voyage.</span>
+          <div className="mb-3 flex items-center gap-2 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">
+            <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+            <span>Le quota de tickets voyageurs est atteint pour ce voyage.</span>
           </div>
         )}
 
-        {/* Type de ticket - Toggle Switch */}
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-3">Type de ticket</label>
-          <div className="flex flex-wrap gap-2 bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => setTicketType('voyageur')}
-              disabled={isTicketsFull || isAllClassesFull}
-              className={`flex-1 min-w-25 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
-                ticketType === 'voyageur' && !isTicketsFull && !isAllClassesFull
-                  ? 'bg-orange-600 text-white shadow-lg'
-                  : isTicketsFull || isAllClassesFull
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <User className="h-4 w-4" />
-              Voyageur
-            </button>
-            <button
-              onClick={() => setTicketType('bagage')}
-              disabled={isBagagesFull}
-              className={`flex-1 min-w-25 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
-                ticketType === 'bagage' && !isBagagesFull
-                  ? 'bg-orange-600 text-white shadow-lg'
-                  : isBagagesFull
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <Package className="h-4 w-4" />
-              Bagage
-            </button>
-            <button
-              onClick={() => setTicketType('voyageur_bagage')}
-              disabled={isTicketsFull || isBagagesFull || isAllClassesFull}
-              className={`flex-1 min-w-30 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
-                ticketType === 'voyageur_bagage' && !isTicketsFull && !isBagagesFull && !isAllClassesFull
-                  ? 'bg-orange-600 text-white shadow-lg'
-                  : isTicketsFull || isBagagesFull || isAllClassesFull
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <Briefcase className="h-4 w-4" />
-              Voyageur + Bagage
-            </button>
-            <button
-              onClick={() => setTicketType('colis')}
-              disabled={isBagagesFull}
-              className={`flex-1 min-w-25 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition ${
-                ticketType === 'colis' && !isBagagesFull
-                  ? 'bg-orange-600 text-white shadow-lg'
-                  : isBagagesFull
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <Box className="h-4 w-4" />
-              Colis
-            </button>
-          </div>
-        </div>
+        {/* Formulaire + Aperçu - Single Page */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Formulaire */}
+          <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-stone-200/60 p-5">
+            <h2 className="text-sm font-semibold text-stone-800 mb-4 flex items-center gap-1.5">
+              <Ticket className="h-4 w-4 text-amber-600" />
+              Informations du voyageur
+            </h2>
 
-        {/* Messages */}
-        {error && (
-          <div className="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-        {success && (
-          <div className="mb-4 flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
-            <CheckCircle className="h-5 w-5 text-green-500 shrink-0" />
-            <span>{success}</span>
-          </div>
-        )}
-
-        {/* Formulaire */}
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          {/* Section Voyageur */}
-          {(ticketType === 'voyageur' || ticketType === 'voyageur_bagage') && !isTicketsFull && !isAllClassesFull && (
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Ticket className="h-5 w-5 text-orange-600" />
-                Ticket Voyageur
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {!isTicketsFull ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nom du voyageur *</label>
+                  <label className="block text-xs font-medium text-stone-700 mb-0.5">Nom du voyageur *</label>
                   <input
                     type="text"
                     value={voyageurForm.nom}
-                    onChange={(e) => setVoyageurForm({ ...voyageurForm, nom: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
+                    onChange={(e) => {
+                      setVoyageurForm({ ...voyageurForm, nom: e.target.value });
+                      setShowCreatedTicket(false);
+                      setLastCreatedTicket(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-sm bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-stone-800 transition"
                     placeholder="Nom complet"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">CIN *</label>
+                  <label className="block text-xs font-medium text-stone-700 mb-0.5">CIN *</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
@@ -1046,28 +631,38 @@ export default function VentePage() {
                       onChange={(e) => {
                         const val = e.target.value.replace(/\D/g, '').slice(0, 12);
                         setVoyageurForm({ ...voyageurForm, cin: val });
+                        setShowCreatedTicket(false);
+                        setLastCreatedTicket(null);
                       }}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
+                      className="flex-1 px-3 py-1.5 text-sm bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-stone-800 transition"
                       placeholder="12 chiffres"
                       required
                     />
-                    <label className="flex items-center gap-1 text-sm text-gray-600 whitespace-nowrap">
+                    <label className="flex items-center gap-1 text-xs text-stone-600 whitespace-nowrap">
                       <input
                         type="checkbox"
                         checked={voyageurForm.mineur}
-                        onChange={(e) => setVoyageurForm({ ...voyageurForm, mineur: e.target.checked })}
-                        className="h-4 w-4 text-orange-600 focus:ring-orange-500"
+                        onChange={(e) => {
+                          setVoyageurForm({ ...voyageurForm, mineur: e.target.checked });
+                          setShowCreatedTicket(false);
+                          setLastCreatedTicket(null);
+                        }}
+                        className="h-3.5 w-3.5 text-amber-600 focus:ring-amber-500 rounded"
                       />
                       Mineur
                     </label>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Arrivée *</label>
+                  <label className="block text-xs font-medium text-stone-700 mb-0.5">Arrivée *</label>
                   <select
                     value={voyageurForm.arrivee}
-                    onChange={(e) => setVoyageurForm({ ...voyageurForm, arrivee: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
+                    onChange={(e) => {
+                      setVoyageurForm({ ...voyageurForm, arrivee: e.target.value });
+                      setShowCreatedTicket(false);
+                      setLastCreatedTicket(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-sm bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-stone-800 transition"
                     required
                   >
                     <option value="">Sélectionner</option>
@@ -1079,416 +674,242 @@ export default function VentePage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Classe *</label>
-                  <div className="flex gap-2">
+                  <label className="block text-xs font-medium text-stone-700 mb-0.5">Classe *</label>
+                  <div className="flex gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setVoyageurForm({ ...voyageurForm, classe: '1ere' })}
-                      disabled={is1ereFull}
-                      className={`flex-1 px-4 py-2 rounded-lg border transition ${
-                        voyageurForm.classe === '1ere' && !is1ereFull
-                          ? 'border-orange-600 bg-orange-50 text-orange-700 font-medium'
-                          : is1ereFull
-                            ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                      onClick={() => {
+                        setVoyageurForm({ ...voyageurForm, classe: '1ere' });
+                        setShowCreatedTicket(false);
+                        setLastCreatedTicket(null);
+                      }}
+                      disabled={!is1ereAvailable || !voyageurForm.arrivee}
+                      className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                        voyageurForm.classe === '1ere' && is1ereAvailable && voyageurForm.arrivee
+                          ? 'border-amber-600 bg-amber-50 text-amber-700'
+                          : (!is1ereAvailable || !voyageurForm.arrivee)
+                            ? 'border-stone-200 bg-stone-100 text-stone-400 cursor-not-allowed'
+                            : 'border-stone-200 text-stone-600 hover:bg-stone-50'
                       }`}
                     >
-                      1ère {is1ereFull ? '(Complet)' : `(${places.places_1ere} dispo)`}
+                      1ère {is1ereAvailable ? `(${places1ereDisponibles})` : '(Complet)'}
                     </button>
                     <button
                       type="button"
-                      onClick={() => setVoyageurForm({ ...voyageurForm, classe: '2eme' })}
-                      disabled={is2emeFull}
-                      className={`flex-1 px-4 py-2 rounded-lg border transition ${
-                        voyageurForm.classe === '2eme' && !is2emeFull
-                          ? 'border-orange-600 bg-orange-50 text-orange-700 font-medium'
-                          : is2emeFull
-                            ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                      onClick={() => {
+                        setVoyageurForm({ ...voyageurForm, classe: '2eme' });
+                        setShowCreatedTicket(false);
+                        setLastCreatedTicket(null);
+                      }}
+                      className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                        voyageurForm.classe === '2eme'
+                          ? 'border-amber-600 bg-amber-50 text-amber-700'
+                          : 'border-stone-200 text-stone-600 hover:bg-stone-50'
                       }`}
                     >
-                      2ème {is2emeFull ? '(Complet)' : `(${places.places_2eme} dispo)`}
+                      2ème
                     </button>
                   </div>
-                  {(is1ereFull || is2emeFull) && (
-                    <p className="text-xs text-red-500 mt-1">
-                      {is1ereFull && is2emeFull ? 'Toutes les classes sont complètes' : 
-                       is1ereFull ? '1ère classe complète' : '2ème classe complète'}
+                  {!is1ereAvailable && voyageurForm.arrivee && (
+                    <p className="text-[10px] text-red-500 mt-0.5">
+                      1ère classe complète pour ce segment
+                    </p>
+                  )}
+                  {!voyageurForm.arrivee && (
+                    <p className="text-[10px] text-amber-500 mt-0.5">
+                      Sélectionnez une destination
                     </p>
                   )}
                 </div>
                 {voyageurForm.arrivee && tarifInfo && (
-                  <div className="md:col-span-2 bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Distance: {tarifInfo.distance} km</span>
-                      <span className="text-sm font-bold text-orange-700">Montant: {montantVoyageur} Ar</span>
+                  <div className="sm:col-span-2 bg-stone-50 rounded-lg p-2 border border-stone-200/60">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-stone-600">Distance: {tarifInfo.distance} km</span>
+                      <span className="font-bold text-amber-700">{montantVoyageur} Ar</span>
                     </div>
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="text-center py-6">
+                <Lock className="h-10 w-10 text-stone-300 mx-auto mb-2" />
+                <p className="text-stone-500 font-medium text-sm">Quota atteint</p>
+                <p className="text-xs text-stone-400">Le quota de tickets est atteint pour ce voyage</p>
+              </div>
+            )}
 
-          {/* Section Bagage */}
-          {(ticketType === 'bagage' || ticketType === 'voyageur_bagage') && !isBagagesFull && (
-            <div className={`mb-6 ${ticketType === 'voyageur_bagage' ? 'border-t border-gray-200 pt-6' : ''}`}>
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Package className="h-5 w-5 text-blue-600" />
-                Ticket Bagage
-              </h2>
-              <div className="mb-3 text-sm text-gray-600">
-                Quota restant: <span className="font-bold text-blue-700">{bagageRestant.toFixed(1)} kg</span>
-                <span className="text-xs text-gray-400 ml-2">(1m³ = 500kg équivalent)</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nature *</label>
-                  <input
-                    type="text"
-                    value={bagageForm.nature}
-                    onChange={(e) => setBagageForm({ ...bagageForm, nature: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
-                    placeholder="Sac, valise, etc."
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Arrivée *</label>
-                  <select
-                    value={bagageForm.arrivee}
-                    onChange={(e) => setBagageForm({ ...bagageForm, arrivee: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
-                    required
-                  >
-                    <option value="">Sélectionner</option>
-                    {availableGares.map(g => (
-                      <option key={g.code} value={g.code}>
-                        {g.code} - {g.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Poids (kg)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={bagageForm.usePoids}
-                      onChange={(e) => handleBagagePoidsChange(e.target.checked)}
-                      className="h-4 w-4 text-orange-600 focus:ring-orange-500"
-                    />
-                    <div className="relative flex-1">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Weight className="h-4 w-4 text-gray-400" />
-                      </div>
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        value={bagageForm.poids}
-                        onChange={(e) => setBagageForm({ ...bagageForm, poids: e.target.value })}
-                        disabled={!bagageForm.usePoids}
-                        className={`w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 ${!bagageForm.usePoids ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
-                        placeholder="15.0"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Volume (m3)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={bagageForm.useVolume}
-                      onChange={(e) => handleBagageVolumeChange(e.target.checked)}
-                      className="h-4 w-4 text-orange-600 focus:ring-orange-500"
-                    />
-                    <div className="relative flex-1">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Box className="h-4 w-4 text-gray-400" />
-                      </div>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        value={bagageForm.volume}
-                        onChange={(e) => setBagageForm({ ...bagageForm, volume: e.target.value })}
-                        disabled={!bagageForm.useVolume}
-                        className={`w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 ${!bagageForm.useVolume ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
-                        placeholder="0.1"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {(bagageForm.usePoids || bagageForm.useVolume) && (bagageForm.poids || bagageForm.volume) && (
-                <div className="mt-3 bg-blue-50 rounded-lg p-3">
-                  <div className="space-y-1 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Poids équivalent (pour quota):</span>
-                      <span className="font-bold text-blue-700">
-                        {getPoidsEquivalent(
-                          bagageForm.usePoids ? parseFloat(bagageForm.poids) || 0 : 0,
-                          bagageForm.useVolume ? parseFloat(bagageForm.volume) || 0 : 0
-                        ).toFixed(1)} kg
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Montant estimé:</span>
-                      <span className="font-bold text-blue-700">{montantBagage} Ar</span>
-                    </div>
-                    {bagageForm.usePoids && tarifKg && (
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Poids: {parseFloat(bagageForm.poids) || 0} kg × {tarifKg.tarif_vente} Ar/kg</span>
-                        <span>{(parseFloat(bagageForm.poids) || 0) * tarifKg.tarif_vente} Ar</span>
-                      </div>
-                    )}
-                    {bagageForm.useVolume && tarifM3 && (
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Volume: {parseFloat(bagageForm.volume) || 0} m³ × {tarifM3.tarif_vente} Ar/m³</span>
-                        <span>{(parseFloat(bagageForm.volume) || 0) * tarifM3.tarif_vente} Ar</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              {isPoidsDepasseQuotaBagage() && (
-                <div className="mt-2 flex items-center gap-2 text-red-600 text-sm">
-                  <AlertCircle className="h-4 w-4" />
-                  <span>Le poids équivalent dépasse le quota restant ({bagageRestant.toFixed(1)} kg)</span>
-                </div>
-              )}
+            {/* Bouton Valider */}
+            <div className="border-t border-stone-200/60 pt-4 mt-4">
+              <button
+                onClick={handleSubmit}
+                disabled={
+                  isSubmitting || 
+                  isTicketsFull ||
+                  (voyageurForm.classe === '1ere' && !is1ereAvailable) ||
+                  !voyageurForm.arrivee
+                }
+                className={`w-full py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 shadow-lg transition-all duration-200 ${
+                  isSubmitting || 
+                  isTicketsFull ||
+                  (voyageurForm.classe === '1ere' && !is1ereAvailable) ||
+                  !voyageurForm.arrivee
+                    ? 'bg-stone-300 text-stone-500 cursor-not-allowed'
+                    : 'bg-linear-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white shadow-amber-500/30'
+                }`}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>En cours...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-4 w-4" />
+                    <span>VALIDER LE TICKET</span>
+                  </>
+                )}
+              </button>
             </div>
-          )}
+          </div>
 
-          {/* Section Colis */}
-          {ticketType === 'colis' && !isBagagesFull && (
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Box className="h-5 w-5 text-purple-600" />
-                Ticket Colis
-              </h2>
-              <div className="mb-3 text-sm text-gray-600">
-                Quota restant: <span className="font-bold text-purple-700">{bagageRestant.toFixed(1)} kg</span>
-                <span className="text-xs text-gray-400 ml-2">(1m³ = 500kg équivalent)</span>
+          {/* Aperçu du ticket */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-5 sticky top-24">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-stone-700 flex items-center gap-1.5">
+                  <Printer className="h-4 w-4 text-amber-600" />
+                  Aperçu du ticket
+                </h3>
+                {isDisplayCreated ? (
+                  <span className="text-[10px] text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded-full">
+                    ✓ Enregistré
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-amber-600 font-medium bg-amber-50 px-2 py-0.5 rounded-full animate-pulse">
+                    ● En direct
+                  </span>
+                )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nature *</label>
-                  <input
-                    type="text"
-                    value={colisForm.nature}
-                    onChange={(e) => setColisForm({ ...colisForm, nature: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
-                    placeholder="Nature du colis"
-                    required
-                  />
+
+              {/* Ticket stylisé */}
+              <div className={`bg-linear-to-br from-amber-50 to-stone-50 rounded-xl border-2 ${isDisplayCreated ? 'border-emerald-400' : 'border-amber-200/60'} p-4 relative overflow-hidden transition-all duration-200`}>
+                {/* Bande décorative */}
+                <div className="absolute top-0 left-0 right-0 h-1 bg-linear-to-r from-amber-700 via-stone-600 to-emerald-700" />
+                
+                <div className="text-center mb-2">
+                  <div className="inline-block p-1 bg-amber-100 rounded-lg">
+                    <Ticket className="h-4 w-4 text-amber-700" />
+                  </div>
+                  <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">DIATSARA - VBC</p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Arrivée *</label>
-                  <select
-                    value={colisForm.arrivee}
-                    onChange={(e) => setColisForm({ ...colisForm, arrivee: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
-                    required
-                  >
-                    <option value="">Sélectionner</option>
-                    {availableGares.map(g => (
-                      <option key={g.code} value={g.code}>
-                        {g.code} - {g.name}
-                      </option>
-                    ))}
-                  </select>
+
+                <div className="text-center border-y border-dashed border-amber-200/60 py-1.5 mb-2">
+                  <p className="text-xl font-mono font-bold text-stone-800 tracking-wider">
+                    {displayNumTicket}
+                  </p>
+                  <p className="text-[9px] text-stone-400 uppercase tracking-widest">Ticket Voyageur</p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Poids (kg)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={colisForm.usePoids}
-                      onChange={(e) => handleColisPoidsChange(e.target.checked)}
-                      className="h-4 w-4 text-orange-600 focus:ring-orange-500"
-                    />
-                    <div className="relative flex-1">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Weight className="h-4 w-4 text-gray-400" />
-                      </div>
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        value={colisForm.poids}
-                        onChange={(e) => setColisForm({ ...colisForm, poids: e.target.value })}
-                        disabled={!colisForm.usePoids}
-                        className={`w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 ${!colisForm.usePoids ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
-                        placeholder="15.0"
-                      />
-                    </div>
+
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Voyageur</span>
+                    <span className="font-medium text-stone-800 truncate max-w-25 transition-all duration-200">
+                      {displayNom || '---'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Trajet</span>
+                    <span className="font-medium text-stone-800 transition-all duration-200">
+                      {gare ? `${gare.code} → ${displayArrivee || '---'}` : '---'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Classe</span>
+                    <span className={`font-medium transition-all duration-200 ${displayClasse === '1ere' ? 'text-yellow-700' : 'text-stone-700'}`}>
+                      {displayClasse === '1ere' ? '1ère' : '2ème'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-amber-200/60 pt-1 mt-1">
+                    <span className="text-stone-500 font-medium">Montant</span>
+                    <span className="font-bold text-amber-700 transition-all duration-200">
+                      {displayMontant} Ar
+                    </span>
+                  </div>
+                  <div className="flex justify-between ">
+                    <span className="text-stone-500">Date</span>
+                    <span className="text-[10px] text-stone-400">
+                      {new Date().toLocaleDateString('fr-FR')}
+                    </span>
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Volume (m3)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={colisForm.useVolume}
-                      onChange={(e) => handleColisVolumeChange(e.target.checked)}
-                      className="h-4 w-4 text-orange-600 focus:ring-orange-500"
-                    />
-                    <div className="relative flex-1">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Box className="h-4 w-4 text-gray-400" />
-                      </div>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        value={colisForm.volume}
-                        onChange={(e) => setColisForm({ ...colisForm, volume: e.target.value })}
-                        disabled={!colisForm.useVolume}
-                        className={`w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 ${!colisForm.useVolume ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
-                        placeholder="0.1"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nom expéditeur *</label>
-                  <input
-                    type="text"
-                    value={colisForm.nom_expediteur}
-                    onChange={(e) => setColisForm({ ...colisForm, nom_expediteur: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
-                    placeholder="Nom complet"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Téléphone expéditeur *</label>
-                  <input
-                    type="text"
-                    value={colisForm.num_tel_expediteur}
-                    onChange={(e) => handlePhoneChange('expediteur', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
-                    placeholder="03X XX XXX XX"
-                    required
-                    maxLength={14}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nom destinataire *</label>
-                  <input
-                    type="text"
-                    value={colisForm.nom_destinataire}
-                    onChange={(e) => setColisForm({ ...colisForm, nom_destinataire: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
-                    placeholder="Nom complet"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Téléphone destinataire *</label>
-                  <input
-                    type="text"
-                    value={colisForm.num_tel_destinataire}
-                    onChange={(e) => handlePhoneChange('destinataire', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900"
-                    placeholder="03X XX XXX XX"
-                    required
-                    maxLength={14}
-                  />
+
+                {/* Badge de statut */}
+                <div className="absolute bottom-2 right-2">
+                  <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full transition-all duration-200 ${
+                    isDisplayCreated ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-600'
+                  }`}>
+                    {isDisplayCreated ? '✓ ENREGISTRÉ' : '● APERÇU'}
+                  </span>
                 </div>
               </div>
-              {(colisForm.usePoids || colisForm.useVolume) && (colisForm.poids || colisForm.volume) && (
-                <div className="mt-3 bg-purple-50 rounded-lg p-3">
-                  <div className="space-y-1 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Poids équivalent (pour quota):</span>
-                      <span className="font-bold text-purple-700">
-                        {getPoidsEquivalent(
-                          colisForm.usePoids ? parseFloat(colisForm.poids) || 0 : 0,
-                          colisForm.useVolume ? parseFloat(colisForm.volume) || 0 : 0
-                        ).toFixed(1)} kg
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Montant estimé:</span>
-                      <span className="font-bold text-purple-700">{montantColis} Ar</span>
-                    </div>
-                    {colisForm.usePoids && tarifKg && (
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Poids: {parseFloat(colisForm.poids) || 0} kg × {tarifKg.tarif_vente} Ar/kg</span>
-                        <span>{(parseFloat(colisForm.poids) || 0) * tarifKg.tarif_vente} Ar</span>
-                      </div>
-                    )}
-                    {colisForm.useVolume && tarifM3 && (
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Volume: {parseFloat(colisForm.volume) || 0} m³ × {tarifM3.tarif_vente} Ar/m³</span>
-                        <span>{(parseFloat(colisForm.volume) || 0) * tarifM3.tarif_vente} Ar</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              {isPoidsDepasseQuotaColis() && (
-                <div className="mt-2 flex items-center gap-2 text-red-600 text-sm">
-                  <AlertCircle className="h-4 w-4" />
-                  <span>Le poids équivalent dépasse le quota restant ({bagageRestant.toFixed(1)} kg)</span>
-                </div>
-              )}
+
+              <p className="text-[10px] text-stone-400 text-center mt-2 transition-all duration-200">
+                {isDisplayCreated ? '✓ Ticket enregistré avec succès' : 
+                 (displayNom || displayArrivee) ? '✓ Aperçu en temps réel' : 'Remplissez le formulaire'}
+              </p>
             </div>
-          )}
-
-          {/* Montant total pour Voyageur + Bagage */}
-          {ticketType === 'voyageur_bagage' && (
-            <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Montant total (Voyageur + Bagage):</span>
-                <span className="text-xl font-bold text-orange-700">{montantTotal} Ar</span>
-              </div>
-            </div>
-          )}
-
-          {/* Bouton Valider */}
-          <div className="border-t border-gray-200 pt-6">
-            <button
-              onClick={handleSubmit}
-              disabled={
-                isSubmitting || 
-                (ticketType === 'voyageur' && (isTicketsFull || isAllClassesFull)) ||
-                (ticketType === 'bagage' && isBagagesFull) ||
-                (ticketType === 'voyageur_bagage' && (isTicketsFull || isBagagesFull || isAllClassesFull)) ||
-                (ticketType === 'bagage' && isPoidsDepasseQuotaBagage()) ||
-                (ticketType === 'voyageur_bagage' && (isPoidsDepasseQuotaBagage() || isAllClassesFull)) ||
-                (ticketType === 'colis' && (isPoidsDepasseQuotaColis() || isBagagesFull))
-              }
-              className={`w-full py-3 rounded-lg font-medium flex items-center justify-center gap-2 shadow-lg transition-all duration-200 ${
-                isSubmitting || 
-                (ticketType === 'voyageur' && (isTicketsFull || isAllClassesFull)) ||
-                (ticketType === 'bagage' && isBagagesFull) ||
-                (ticketType === 'voyageur_bagage' && (isTicketsFull || isBagagesFull || isAllClassesFull)) ||
-                (ticketType === 'bagage' && isPoidsDepasseQuotaBagage()) ||
-                (ticketType === 'voyageur_bagage' && (isPoidsDepasseQuotaBagage() || isAllClassesFull)) ||
-                (ticketType === 'colis' && (isPoidsDepasseQuotaColis() || isBagagesFull))
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-linear-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white shadow-orange-500/30'
-              }`}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>En cours...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="h-5 w-5" />
-                  <span>VALIDER TICKET</span>
-                </>
-              )}
-            </button>
           </div>
         </div>
       </div>
+
+      {/* Popup */}
+      {popup.visible && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className={`bg-white rounded-xl shadow-2xl max-w-md w-full p-5 transform transition-all animate-in fade-in zoom-in duration-200 ${
+            popup.type === 'error' ? 'border-l-4 border-red-500' :
+            popup.type === 'success' ? 'border-l-4 border-emerald-500' :
+            popup.type === 'warning' ? 'border-l-4 border-amber-500' :
+            'border-l-4 border-blue-500'
+          }`}>
+            <div className="flex items-start gap-3">
+              <div className={`p-1.5 rounded-full shrink-0 ${
+                popup.type === 'error' ? 'bg-red-100 text-red-600' :
+                popup.type === 'success' ? 'bg-emerald-100 text-emerald-600' :
+                popup.type === 'warning' ? 'bg-amber-100 text-amber-600' :
+                'bg-blue-100 text-blue-600'
+              }`}>
+                {popup.type === 'error' && <AlertCircle className="h-5 w-5" />}
+                {popup.type === 'success' && <CheckCircle className="h-5 w-5" />}
+                {popup.type === 'warning' && <AlertTriangle className="h-5 w-5" />}
+                {popup.type === 'info' && <AlertCircle className="h-5 w-5" />}
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-stone-800 text-sm">{popup.title}</h3>
+                <p className="text-xs text-stone-600 mt-0.5">{popup.message}</p>
+              </div>
+              <button
+                onClick={closePopup}
+                className="p-1 hover:bg-stone-100 rounded-lg transition shrink-0"
+              >
+                <X className="h-4 w-4 text-stone-400" />
+              </button>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={closePopup}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                  popup.type === 'error' ? 'bg-red-600 hover:bg-red-700 text-white' :
+                  popup.type === 'success' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' :
+                  popup.type === 'warning' ? 'bg-amber-600 hover:bg-amber-700 text-white' :
+                  'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

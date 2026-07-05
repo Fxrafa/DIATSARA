@@ -1,10 +1,11 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { Calendar, Edit, CheckCircle, AlertCircle, Clock, Train, Users, Package, Eye } from 'lucide-react';
+import { Calendar, Edit, CheckCircle, AlertCircle, Clock, Train, Users, Package, Eye, PlusCircle } from 'lucide-react';
 import { terminerVoyage } from '../actions';
 import { useRouter } from 'next/navigation';
 
@@ -31,6 +32,7 @@ export default function HistoriquePage() {
   const [loading, setLoading] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<'tous' | 'actif' | 'termine'>('tous');
 
   const fetchVoyages = async () => {
     setLoading(true);
@@ -76,16 +78,19 @@ export default function HistoriquePage() {
     router.push(`/dco/historique/modifier/${voyage.id}`);
   };
 
-  // ✅ Redirection selon le statut du voyage
   const handleRowClick = (voyage: Voyage) => {
     if (voyage.statut === 'actif') {
-      // Redirection vers le suivi en temps réel pour ce voyage
       router.push(`/dco/suivi-temps-reel?voyage=${voyage.id}`);
     } else {
-      // Redirection vers la recette de ce voyage
       router.push(`/dco/historique-recette?voyage=${voyage.id}`);
     }
   };
+
+  const filteredVoyages = voyages.filter(v => {
+    if (activeFilter === 'actif') return v.statut === 'actif';
+    if (activeFilter === 'termine') return v.statut === 'termine';
+    return true;
+  });
 
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('fr-FR', {
@@ -96,17 +101,25 @@ export default function HistoriquePage() {
     });
   };
 
+  const formatShortDate = (date: string) => {
+    return new Date(date).toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  };
+
   const getStatusBadge = (statut: string) => {
     if (statut === 'actif') {
       return (
-        <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
           <Clock className="h-3 w-3" />
           Actif
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-stone-100 text-stone-600 rounded-full text-xs font-medium">
         <CheckCircle className="h-3 w-3" />
         Terminé
       </span>
@@ -121,15 +134,29 @@ export default function HistoriquePage() {
     return parts.join(' | ') || 'Aucune formation';
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-amber-700 border-t-transparent"></div>
+        <p className="ml-3 text-stone-500">Chargement...</p>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Historique des voyages</h1>
-        <p className="text-gray-600 mt-1">Consultez et gérez tous les voyages planifiés</p>
-        <p className="text-sm text-gray-400 mt-1">
-          💡 Cliquez sur un voyage <span className="text-green-600 font-medium">actif</span> pour accéder au suivi en temps réel, 
-          ou sur un voyage <span className="text-gray-600 font-medium">terminé</span> pour voir sa recette.
-        </p>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-serif font-bold text-stone-800">Historique des voyages</h1>
+          <p className="text-stone-500 text-sm">Consultez et gérez tous les voyages planifiés</p>
+        </div>
+        <a
+          href="/dco/planification"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-sm font-medium transition shadow-sm shadow-amber-700/20"
+        >
+          <PlusCircle className="h-4 w-4" />
+          Nouveau voyage
+        </a>
       </div>
 
       {error && (
@@ -139,92 +166,135 @@ export default function HistoriquePage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
-          <p className="mt-2 text-gray-500">Chargement...</p>
-        </div>
-      ) : voyages.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl shadow-sm">
-          <Calendar className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-500">Aucun voyage planifié</p>
-          <a
-            href="/dco/planification"
-            className="inline-block mt-4 text-blue-600 hover:text-blue-700 font-medium"
+      {/* Filtres */}
+      <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-3 mb-6">
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setActiveFilter('tous')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
+              activeFilter === 'tous'
+                ? 'bg-amber-700 text-white shadow-sm shadow-amber-700/20'
+                : 'text-stone-600 hover:bg-stone-100'
+            }`}
           >
-            Planifier un voyage
-          </a>
+            Tous
+          </button>
+          <button
+            onClick={() => setActiveFilter('actif')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
+              activeFilter === 'actif'
+                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
+                : 'text-stone-600 hover:bg-stone-100'
+            }`}
+          >
+            Actifs
+          </button>
+          <button
+            onClick={() => setActiveFilter('termine')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
+              activeFilter === 'termine'
+                ? 'bg-stone-600 text-white shadow-sm shadow-stone-600/20'
+                : 'text-stone-600 hover:bg-stone-100'
+            }`}
+          >
+            Terminés
+          </button>
+          <span className="ml-auto text-xs text-stone-400 self-center">
+            {filteredVoyages.length} voyage(s)
+          </span>
+        </div>
+      </div>
+
+      {filteredVoyages.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-xl shadow-sm border border-stone-200/60">
+          <Calendar className="h-16 w-16 text-stone-300 mx-auto mb-4" />
+          <p className="text-stone-500 font-medium">Aucun voyage trouvé</p>
+          <p className="text-sm text-stone-400 mt-1">
+            {activeFilter === 'tous' ? 'Aucun voyage planifié' : 
+             activeFilter === 'actif' ? 'Aucun voyage actif' : 'Aucun voyage terminé'}
+          </p>
+          {activeFilter !== 'termine' && (
+            <a
+              href="/dco/planification"
+              className="inline-block mt-4 text-amber-700 hover:text-amber-800 font-medium hover:underline"
+            >
+              Planifier un voyage →
+            </a>
+          )}
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-stone-50/80">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sens</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Départ → Arrivée</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Formation</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Capacité</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Statut</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Sens</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Départ → Arrivée</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Formation</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Capacité</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Statut</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {voyages.map((voyage) => (
+              <tbody className="divide-y divide-stone-200/60">
+                {filteredVoyages.map((voyage) => (
                   <tr
                     key={voyage.id}
                     onClick={() => handleRowClick(voyage)}
                     className={`
                       transition cursor-pointer
                       ${voyage.statut === 'actif' 
-                        ? 'hover:bg-green-50 hover:shadow-inner' 
-                        : 'hover:bg-gray-50 hover:shadow-inner'
+                        ? 'hover:bg-emerald-50/50' 
+                        : 'hover:bg-stone-50'
                       }
                     `}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDate(voyage.date_voyage)}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm font-medium text-stone-800">{formatShortDate(voyage.date_voyage)}</div>
+                      <div className="text-xs text-stone-400">
+                        {new Date(voyage.date_voyage).toLocaleDateString('fr-FR', { weekday: 'short' })}
+                      </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className="inline-flex items-center px-2.5 py-0.5 bg-stone-100 text-stone-700 rounded text-xs font-medium">
                         {voyage.sens}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">
+                        <span className="text-sm font-medium text-stone-800">
                           {voyage.gare_depart_detail?.code || voyage.gare_depart}
                         </span>
-                        <span className="text-gray-400">→</span>
-                        <span className="font-medium">
+                        <span className="text-stone-400 text-xs">→</span>
+                        <span className="text-sm font-medium text-stone-800">
                           {voyage.gare_arrivee_detail?.code || voyage.gare_arrivee}
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      <div className="flex items-center gap-2">
-                        <Train className="h-4 w-4 text-gray-400" />
+                    <td className="px-4 py-3 text-sm text-stone-600">
+                      <div className="flex items-center gap-1.5">
+                        <Train className="h-3.5 w-3.5 text-stone-400" />
                         <span>{getFormationText(voyage)}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
+                    <td className="px-4 py-3">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5 text-xs">
                           <Users className="h-3 w-3 text-blue-500" />
-                          <span>{voyage.places_max} places</span>
+                          <span className="text-stone-600">{voyage.places_max} places</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Package className="h-3 w-3 text-orange-500" />
-                          <span>{voyage.poids_max} tonnes</span>
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <Package className="h-3 w-3 text-amber-500" />
+                          <span className="text-stone-600">{voyage.poids_max} tonnes</span>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       {getStatusBadge(voyage.statut)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <div className="flex items-center gap-2">
+                    <td className="px-4 py-3 whitespace-nowrap text-center">
+                      <div className="flex items-center justify-center gap-1.5">
                         {voyage.statut === 'actif' && (
                           <>
                             <button
@@ -232,7 +302,8 @@ export default function HistoriquePage() {
                                 e.stopPropagation();
                                 setShowConfirmModal(voyage.id);
                               }}
-                              className="inline-flex items-center gap-1 px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium transition"
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1"
+                              title="Marquer comme terminé"
                             >
                               <CheckCircle className="h-3 w-3" />
                               Effectuer
@@ -242,7 +313,8 @@ export default function HistoriquePage() {
                                 e.stopPropagation();
                                 handleEdit(voyage);
                               }}
-                              className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium transition"
+                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1"
+                              title="Modifier"
                             >
                               <Edit className="h-3 w-3" />
                               Modifier
@@ -252,7 +324,8 @@ export default function HistoriquePage() {
                                 e.stopPropagation();
                                 handleRowClick(voyage);
                               }}
-                              className="inline-flex items-center gap-1 px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium transition"
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1"
+                              title="Suivi en temps réel"
                             >
                               <Eye className="h-3 w-3" />
                               Suivi
@@ -261,17 +334,18 @@ export default function HistoriquePage() {
                         )}
                         {voyage.statut === 'termine' && (
                           <>
-                            <span className="text-gray-400 text-xs">Terminé</span>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleRowClick(voyage);
                               }}
-                              className="inline-flex items-center gap-1 px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-xs font-medium transition"
+                              className="px-3 py-1.5 bg-stone-600 hover:bg-stone-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1"
+                              title="Voir la recette"
                             >
                               <Eye className="h-3 w-3" />
                               Recette
                             </button>
+                            <span className="text-xs text-stone-400">Terminé</span>
                           </>
                         )}
                       </div>
@@ -288,20 +362,28 @@ export default function HistoriquePage() {
       {showConfirmModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Confirmer l'effectuation</h3>
-            <p className="text-gray-600 mb-6">
-              Êtes-vous sûr de vouloir marquer ce voyage comme terminé ? Cette action est irréversible.
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
+                <Clock className="h-5 w-5 text-amber-700" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-stone-800">Confirmer l'effectuation</h3>
+                <p className="text-sm text-stone-500">Cette action est irréversible</p>
+              </div>
+            </div>
+            <p className="text-stone-600 mb-6">
+              Êtes-vous sûr de vouloir marquer ce voyage comme <span className="font-semibold text-amber-700">terminé</span> ?
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowConfirmModal(null)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
+                className="flex-1 px-4 py-2.5 border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-50 transition font-medium"
               >
                 Annuler
               </button>
               <button
                 onClick={() => handleTerminer(showConfirmModal)}
-                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
+                className="flex-1 px-4 py-2.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg transition font-medium shadow-sm shadow-amber-700/20"
               >
                 Confirmer
               </button>

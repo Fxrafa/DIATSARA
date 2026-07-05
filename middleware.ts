@@ -33,30 +33,26 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  // Utiliser getUser() pour vérifier l'authentification
   const { data: { user }, error } = await supabase.auth.getUser();
 
   const path = req.nextUrl.pathname;
 
-  // Si pas d'utilisateur et pas sur login -> rediriger vers login
   if ((!user || error) && path !== '/login') {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  // Si utilisateur est sur login -> rediriger vers dashboard
   if (user && path === '/login') {
     return NextResponse.redirect(new URL('/dashboard', req.url));
   }
 
   if (user) {
-    // Récupérer le rôle - avec gestion d'erreur
     let role = null;
     try {
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('role')
         .eq('id', user.id)
-        .maybeSingle(); // Utiliser maybeSingle() au lieu de single()
+        .maybeSingle();
 
       if (!profileError && profile) {
         role = profile.role;
@@ -65,17 +61,17 @@ export async function middleware(req: NextRequest) {
       console.error('Erreur lors de la récupération du rôle:', err);
     }
 
-    // Redirection racine /dashboard
     if (path === '/dashboard') {
       if (role === 'ADMIN') return NextResponse.redirect(new URL('/admin', req.url));
       if (role === 'DCO') return NextResponse.redirect(new URL('/dco', req.url));
       if (role === 'CTV') return NextResponse.redirect(new URL('/ctv', req.url));
       if (role === 'VBC') return NextResponse.redirect(new URL('/vbc', req.url));
-      // Si pas de rôle, rediriger vers login
+      // ✅ Redirection pour RD
+      if (role === 'RD') return NextResponse.redirect(new URL('/rd', req.url));
       return NextResponse.redirect(new URL('/login', req.url));
     }
 
-    // Vérification des accès par rôle
+    // ✅ Vérification des accès pour RD
     if (path.startsWith('/admin') && role !== 'ADMIN') {
       return NextResponse.redirect(new URL('/dashboard', req.url));
     }
@@ -85,7 +81,10 @@ export async function middleware(req: NextRequest) {
     if (path.startsWith('/ctv') && role !== 'CTV') {
       return NextResponse.redirect(new URL('/dashboard', req.url));
     }
-    if (path.startsWith('/vbc') && role !== 'VBC') {
+    if (path.startsWith('/vbc') && role !== 'VBC' && role !== 'RD') {
+      return NextResponse.redirect(new URL('/dashboard', req.url));
+    }
+    if (path.startsWith('/rd') && role !== 'RD') {
       return NextResponse.redirect(new URL('/dashboard', req.url));
     }
   }

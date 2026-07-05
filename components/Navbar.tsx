@@ -66,44 +66,44 @@ export default function Navbar() {
     const colors: Record<string, string> = {
       ADMIN: 'bg-purple-500',
       DCO: 'bg-blue-500',
-      CTV: 'bg-green-500',
-      VBC: 'bg-orange-500',
+      CTV: 'bg-emerald-500',
+      VBC: 'bg-amber-500',
     };
-    return colors[role] || 'bg-gray-500';
+    return colors[role] || 'bg-stone-500';
   };
 
   const pageTitle = getPageTitle();
 
   return (
-    <nav className="bg-linear-to-r from-blue-700 to-blue-900 text-white shadow-lg sticky top-0 z-50">
+    <nav className="bg-linear-to-r from-stone-800 to-stone-900 text-white shadow-lg sticky top-0 z-50 border-b border-white/5">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo / Titre */}
           <div className="flex items-center space-x-3">
             <div className="shrink-0">
-              <div className="h-9 w-9 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold">
+              <div className="h-9 w-9 rounded-xl bg-linear-to-br from-amber-700 to-stone-700 flex items-center justify-center text-white font-bold shadow-lg shadow-amber-900/20">
                 <Home className="h-5 w-5" />
               </div>
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight">DIATSARA</h1>
-              <p className="text-xs text-blue-200 hidden sm:block">{pageTitle}</p>
+              <h1 className="text-xl font-bold tracking-tight text-white">DIATSARA</h1>
+              <p className="text-xs text-amber-400/70 hidden sm:block">{pageTitle}</p>
             </div>
           </div>
 
           {/* Informations utilisateur - Desktop */}
           <div className="hidden md:flex items-center space-x-4">
             {!loading && profile && (
-              <div className="flex items-center space-x-4 bg-white/10 rounded-lg px-4 py-2">
-                <div className={`h-9 w-9 rounded-full ${getRoleColor(profile.role)} flex items-center justify-center text-white font-bold text-sm`}>
+              <div className="flex items-center space-x-4 bg-white/10 rounded-xl px-4 py-2 border border-white/5">
+                <div className={`h-9 w-9 rounded-full ${getRoleColor(profile.role)} flex items-center justify-center text-white font-bold text-sm shadow-lg`}>
                   {profile.nom.charAt(0).toUpperCase()}
                 </div>
                 <div className="text-left">
-                  <p className="text-sm font-medium flex items-center gap-1">
+                  <p className="text-sm font-medium flex items-center gap-1.5 text-white">
                     {getRoleIcon(profile.role)}
                     {profile.nom}
                   </p>
-                  <p className="text-xs text-blue-200">
+                  <p className="text-xs text-stone-400">
                     {profile.matricule} • {getRoleLabel(profile.role)}
                   </p>
                 </div>
@@ -116,7 +116,7 @@ export default function Navbar() {
           <div className="md:hidden">
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-2 rounded-lg hover:bg-white/10 transition"
+              className="p-2 rounded-xl hover:bg-white/10 transition"
             >
               {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </button>
@@ -126,20 +126,20 @@ export default function Navbar() {
 
       {/* Mobile menu */}
       {isMobileMenuOpen && (
-        <div className="md:hidden bg-blue-800/95 border-t border-blue-700">
-          <div className="px-4 py-3 space-y-3">
+        <div className="md:hidden bg-stone-800/95 border-t border-white/5">
+          <div className="px-4 py-4 space-y-3">
             {!loading && profile && (
               <>
-                <div className="flex items-center space-x-3 bg-white/10 rounded-lg p-3">
-                  <div className={`h-10 w-10 rounded-full ${getRoleColor(profile.role)} flex items-center justify-center text-white font-bold`}>
+                <div className="flex items-center space-x-3 bg-white/10 rounded-xl p-3 border border-white/5">
+                  <div className={`h-10 w-10 rounded-full ${getRoleColor(profile.role)} flex items-center justify-center text-white font-bold shadow-lg`}>
                     {profile.nom.charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <p className="text-sm font-medium flex items-center gap-1">
+                    <p className="text-sm font-medium flex items-center gap-1.5 text-white">
                       {getRoleIcon(profile.role)}
                       {profile.nom}
                     </p>
-                    <p className="text-xs text-blue-200">
+                    <p className="text-xs text-stone-400">
                       {profile.matricule} • {getRoleLabel(profile.role)}
                     </p>
                   </div>
