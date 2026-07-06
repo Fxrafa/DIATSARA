@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use server';
 
 import { createServerClient } from '@supabase/ssr';
@@ -106,7 +107,7 @@ export async function createVoyage(
     return { error: 'Erreur lors de la création du voyage' };
   }
 
-  // 2. ✅ Désactiver TOUTES les ventes (toutes les gares)
+  // 2. Désactiver TOUTES les ventes (toutes les gares)
   const { data: allGares } = await supabaseAdmin
     .from('gare')
     .select('num')
@@ -132,7 +133,6 @@ export async function createVoyage(
   revalidatePath('/dco/suivi-temps-reel');
   redirect('/dco/historique');
 }
-
 
 export async function updateVoyage(
   prevState: ActionResponse | undefined,
@@ -230,6 +230,165 @@ export async function updateVoyage(
   redirect('/dco/historique');
 }
 
+// ==================== ENREGISTREMENT DES QUOTAS ====================
+// ✅ Enregistrer les quotas d'un voyage terminé
+export async function enregistrerQuotasVoyage(voyageId: string, sens: string) {
+  try {
+    // 1. Récupérer les quotas tickets actuels
+    const { data: quotasTickets, error: errorTickets } = await supabaseAdmin
+      .from('quota_tickets')
+      .select('*')
+      .order('gare_num');
+
+    if (errorTickets) {
+      console.error('Erreur récupération quotas tickets:', errorTickets);
+      return { error: 'Erreur lors de la récupération des quotas tickets' };
+    }
+
+    // 2. Récupérer les quotas bagages actuels
+    const { data: quotasBagages, error: errorBagages } = await supabaseAdmin
+      .from('quota_bagages')
+      .select('*')
+      .order('commune_tutelle');
+
+    if (errorBagages) {
+      console.error('Erreur récupération quotas bagages:', errorBagages);
+      return { error: 'Erreur lors de la récupération des quotas bagages' };
+    }
+
+    // 3. Construire l'objet pour quota_ticket_enregistre
+    const gareMapping: { [key: number]: string } = {
+      1: 'gare_mga',
+      2: 'gare_adb',
+      3: 'gare_fnv',
+      4: 'gare_abv',
+      5: 'gare_aty',
+      6: 'gare_adk',
+      7: 'gare_abh',
+      8: 'gare_jrm',
+      9: 'gare_lhd',
+      10: 'gare_skm',
+      11: 'gare_fns',
+      12: 'gare_mgb',
+      13: 'gare_rzk',
+      14: 'gare_anv',
+      15: 'gare_bkv',
+      16: 'gare_abl',
+      17: 'gare_vvn',
+      18: 'gare_zin',
+      19: 'gare_adr',
+      20: 'gare_tpn',
+      21: 'gare_tpl',
+      22: 'gare_akf',
+      23: 'gare_vtz',
+      24: 'gare_ivd',
+      25: 'gare_mng',
+    };
+
+    const ticketData: any = {
+      id_voyage: voyageId,
+      sens: sens,
+    };
+
+    quotasTickets?.forEach(q => {
+      const columnName = gareMapping[q.gare_num];
+      if (columnName) {
+        const quota = sens === '2131' ? q.quota_2131 : q.quota_2132;
+        ticketData[columnName] = quota || 0;
+      }
+    });
+
+    // 4. Construire l'objet pour quota_bagagecolis_enregistre
+    // ✅ Mapping corrigé avec les noms EXACTS des communes
+    const communeMapping: { [key: string]: string } = {
+      'Moramanga': 'commune_moramanga',
+      'Andasibe': 'commune_andasibe',
+      'Ambatovola': 'commune_ambatovola',
+      'Andekaleka': 'commune_andekaleka',
+      'Lohariandava': 'commune_lohariandava',
+      'Fanasana': 'commune_fanasana',
+      'Razanaka': 'commune_razanaka',
+      'Anivorano': 'commune_anivorano',
+      'Brickaville': 'commune_brickaville',
+      'Andovoranto': 'commune_andovoranto',
+      'Ambinaninony': 'commune_ambinaninony',
+      'Amboditandro': 'commune_amboditandro',
+      'CU Toamasina': 'commune_cu_toamasina',
+    };
+
+    const bagageData: any = {
+      id_voyage: voyageId,
+      sens: sens,
+    };
+
+    quotasBagages?.forEach(q => {
+      const columnName = communeMapping[q.commune_tutelle];
+      if (columnName) {
+        const quota = sens === '2131' ? q.quota_tonnes_2131 : q.quota_tonnes_2132;
+        bagageData[columnName] = quota || 0;
+      }
+    });
+
+    // 5. Insérer ou mettre à jour les quotas enregistrés
+    const { error: insertTicketError } = await supabaseAdmin
+      .from('quota_ticket_enregistre')
+      .upsert(ticketData, { onConflict: 'id_voyage, sens' });
+
+    if (insertTicketError) {
+      console.error('Erreur insertion quotas tickets enregistrés:', insertTicketError);
+      return { error: 'Erreur lors de l\'enregistrement des quotas tickets' };
+    }
+
+    const { error: insertBagageError } = await supabaseAdmin
+      .from('quota_bagagecolis_enregistre')
+      .upsert(bagageData, { onConflict: 'id_voyage, sens' });
+
+    if (insertBagageError) {
+      console.error('Erreur insertion quotas bagages enregistrés:', insertBagageError);
+      return { error: 'Erreur lors de l\'enregistrement des quotas bagages' };
+    }
+
+    console.log('✅ Quotas enregistrés pour le voyage:', voyageId);
+    return { success: true };
+  } catch (err) {
+    console.error('Erreur enregistrement quotas:', err);
+    return { error: 'Erreur lors de l\'enregistrement des quotas' };
+  }
+}
+
+// ✅ Récupérer les quotas enregistrés pour un voyage
+export async function getQuotasEnregistres(voyageId: string) {
+  try {
+    const { data: tickets, error: ticketError } = await supabaseAdmin
+      .from('quota_ticket_enregistre')
+      .select('*')
+      .eq('id_voyage', voyageId);
+
+    if (ticketError) {
+      console.error('Erreur récupération quotas tickets enregistrés:', ticketError);
+    }
+
+    const { data: bagages, error: bagageError } = await supabaseAdmin
+      .from('quota_bagagecolis_enregistre')
+      .select('*')
+      .eq('id_voyage', voyageId);
+
+    if (bagageError) {
+      console.error('Erreur récupération quotas bagages enregistrés:', bagageError);
+    }
+
+    return {
+      tickets: tickets || [],
+      bagages: bagages || [],
+    };
+  } catch (err) {
+    console.error('Erreur récupération quotas enregistrés:', err);
+    return { error: 'Erreur lors de la récupération des quotas' };
+  }
+}
+
+// ==================== TERMINER UN VOYAGE ====================
+
 export async function terminerVoyage(id: string): Promise<ActionResponse> {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -254,6 +413,18 @@ export async function terminerVoyage(id: string): Promise<ActionResponse> {
     return { error: 'Non authentifié' };
   }
 
+  // Récupérer le sens du voyage avant de le terminer
+  const { data: voyage, error: voyageError } = await supabaseAdmin
+    .from('voyages')
+    .select('sens')
+    .eq('id', id)
+    .single();
+
+  if (voyageError || !voyage) {
+    return { error: 'Voyage non trouvé' };
+  }
+
+  // Mettre à jour le statut du voyage
   const { error } = await supabaseAdmin
     .from('voyages')
     .update({ statut: 'termine' })
@@ -263,11 +434,24 @@ export async function terminerVoyage(id: string): Promise<ActionResponse> {
     return { error: 'Erreur lors de la mise à jour' };
   }
 
+  // ✅ Enregistrer les quotas du voyage terminé
+  try {
+    const result = await enregistrerQuotasVoyage(id, voyage.sens);
+    if (result.error) {
+      console.error('Erreur enregistrement quotas:', result.error);
+    }
+  } catch (err) {
+    console.error('Erreur lors de l\'enregistrement des quotas:', err);
+  }
+
   revalidatePath('/dco/historique');
+  revalidatePath('/dco/historique-recette');
   return { success: true };
 }
 
-// ✅ Récupérer les voyages actifs avec leurs quotas GLOBAUX
+// ==================== FONCTIONS POUR LES VOYAGES ACTIFS ====================
+
+// Récupérer les voyages actifs avec leurs quotas GLOBAUX
 export async function getVoyagesActifsWithQuotas() {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -317,26 +501,7 @@ export async function getVoyagesActifsWithQuotas() {
     return { error: 'Erreur lors du chargement des voyages' };
   }
 
-  // ✅ Récupérer les quotas GLOBAUX (sans voyage_id)
-  const { data: ticketsQuotas } = await supabaseAdmin
-    .from('quota_tickets')
-    .select('quota');
-
-  const { data: bagagesQuotas } = await supabaseAdmin
-    .from('quota_bagages')
-    .select('quota_tonnes');
-
-  const totalPlacesGlobal = ticketsQuotas?.reduce((sum, t) => sum + t.quota, 0) || 0;
-  const totalTonnesGlobal = bagagesQuotas?.reduce((sum, b) => sum + b.quota_tonnes, 0) || 0;
-
-  // Appliquer les quotas globaux à tous les voyages
-  const voyagesWithQuotas = (voyages || []).map((voyage) => ({
-    ...voyage,
-    total_places_attribuees: totalPlacesGlobal,
-    total_tonnes_attribuees: totalTonnesGlobal,
-  }));
-
-  return { voyages: voyagesWithQuotas };
+  return { voyages: voyages || [] };
 }
 
 // ==================== FONCTIONS POUR L'HISTORIQUE RECETTE ====================
@@ -397,7 +562,7 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       return { error: 'Erreur lors du chargement des tickets voyageurs' };
     }
 
-    // ✅ Récupérer les tickets bagages avec poids et volume
+    // Récupérer les tickets bagages avec poids et volume
     const { data: bagagesVendus, error: bagagesError } = await supabaseAdmin
       .from('ticket_bagage')
       .select('gare_ref, poids, volume, part_madarail')
@@ -407,7 +572,7 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       return { error: 'Erreur lors du chargement des tickets bagages' };
     }
 
-    // ✅ Récupérer les tickets colis avec poids et volume
+    // Récupérer les tickets colis avec poids et volume
     const { data: colisVendus, error: colisError } = await supabaseAdmin
       .from('ticket_colis')
       .select('gare_ref, poids, volume, part_madarail')
@@ -426,7 +591,7 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       return { error: 'Erreur lors du chargement des gares' };
     }
 
-    // ✅ Construire les ventes par gare avec poids équivalent
+    // Construire les ventes par gare avec poids équivalent
     const ventesParGare = allGares.map(gare => {
       const tickets = ticketsVendus?.filter(t => t.gare_ref === gare.num) || [];
       const bagages = bagagesVendus?.filter(b => b.gare_ref === gare.num) || [];
@@ -435,13 +600,10 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       const ticketsVendusCount = tickets.length;
       const recetteTickets = tickets.reduce((sum, t) => sum + (t.part_madarail || 0), 0);
       
-      // ✅ Poids équivalent pour les bagages (poids + volume * 500)
       const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0) + ((b.volume || 0) * 500), 0);
-      // ✅ Poids équivalent pour les colis (poids + volume * 500)
       const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0) + ((c.volume || 0) * 500), 0);
       const poidsTotal = poidsBagages + poidsColis;
       
-      // ✅ Recette bagages (part_madarail)
       const recetteBagages = bagages.reduce((sum, b) => sum + (b.part_madarail || 0), 0);
       const recetteColis = colis.reduce((sum, c) => sum + (c.part_madarail || 0), 0);
       const recetteBagagesTotal = recetteBagages + recetteColis;
@@ -458,7 +620,7 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       };
     });
 
-    // ✅ Filtrer les gares qui ont des ventes (tickets ou poids)
+    // Filtrer les gares qui ont des ventes (tickets ou poids)
     const garesAvecVentes = ventesParGare.filter(v => 
       v.tickets_vendus > 0 || v.poids_vendu > 0
     );
@@ -478,7 +640,7 @@ export async function getVoyageDetailsRecette(voyageId: string) {
       };
     }
 
-    // ✅ Calculer les totaux
+    // Calculer les totaux
     const totalTicketsVendus = garesAvecVentes.reduce((sum, v) => sum + v.tickets_vendus, 0);
     const totalRecetteTickets = garesAvecVentes.reduce((sum, v) => sum + v.recette_tickets, 0);
     const totalPoidsVendu = garesAvecVentes.reduce((sum, v) => sum + v.poids_vendu, 0);
@@ -522,7 +684,6 @@ export async function getVoyagesActifsSuivi() {
   return { voyages };
 }
 
-
 export async function getVoyageDetailsSuivi(voyageId: string) {
   try {
     const { data: voyageData, error: voyageError } = await supabaseAdmin
@@ -539,7 +700,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       return { error: 'Voyage non trouvé' };
     }
 
-    // ✅ Récupérer les quotas tickets GLOBAUX
+    // Récupérer les quotas tickets GLOBAUX
     const { data: quotaTickets, error: quotaTicketError } = await supabaseAdmin
       .from('quota_tickets')
       .select(`
@@ -553,7 +714,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       return { error: 'Erreur lors du chargement des quotas tickets' };
     }
 
-    // ✅ Récupérer les quotas bagages GLOBAUX (par commune)
+    // Récupérer les quotas bagages GLOBAUX (par commune)
     const { data: quotaBagages, error: quotaBagageError } = await supabaseAdmin
       .from('quota_bagages')
       .select('commune_tutelle, quota_tonnes_2131, quota_tonnes_2132');
@@ -562,7 +723,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       return { error: 'Erreur lors du chargement des quotas bagages' };
     }
 
-    // ✅ Créer un map commune -> quota (selon le sens)
+    // Créer un map commune -> quota (selon le sens)
     const quotaBagagesMap = new Map<string, { quota_tonnes_2131: number; quota_tonnes_2132: number }>();
     quotaBagages?.forEach(q => {
       quotaBagagesMap.set(q.commune_tutelle, {
@@ -620,7 +781,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
 
     const garesDesactivees = new Set(ventesDesactivees?.map(v => v.gare_num) || []);
 
-    // ✅ Créer un map pour les quotas tickets
+    // Créer un map pour les quotas tickets
     const quotaTicketsMap = new Map<number, { quota_2131: number; quota_2132: number }>();
     quotaTickets?.forEach(q => {
       quotaTicketsMap.set(q.gare_num, {
@@ -642,7 +803,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
 
     const sens = voyageData.sens;
 
-    // ✅ Construire les données par gare
+    // Construire les données par gare
     const ventesParGare = garesFiltrees.map(gare => {
       const quotaData = quotaTicketsMap.get(gare.num);
       const quotaTicketsValue = quotaData ? (sens === '2131' ? quotaData.quota_2131 : quotaData.quota_2132) : 0;
@@ -654,7 +815,6 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       const ticketsVendusCount = tickets.length;
       const recetteTickets = tickets.reduce((sum, t) => sum + (t.part_madarail || 0), 0);
       
-      // ✅ Poids vendu pour cette gare (poids + volume * 500)
       const poidsBagages = bagages.reduce((sum, b) => sum + (b.poids || 0) + ((b.volume || 0) * 500), 0);
       const poidsColis = colis.reduce((sum, c) => sum + (c.poids || 0) + ((c.volume || 0) * 500), 0);
       const poidsTotal = poidsBagages + poidsColis;
@@ -663,7 +823,6 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
       const recetteColis = colis.reduce((sum, c) => sum + (c.part_madarail || 0), 0);
       const recetteBagagesTotal = recetteBagages + recetteColis;
 
-      // ✅ Récupérer le quota bagages pour la commune (même quota pour toutes les gares de la commune)
       const quotaTotalCommune = quotaBagagesMap.get(gare.commune_tutelle);
       const quotaBagagesValue = quotaTotalCommune 
         ? (sens === '2131' ? quotaTotalCommune.quota_tonnes_2131 : quotaTotalCommune.quota_tonnes_2132)
@@ -677,7 +836,7 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
         quota_tickets: quotaTicketsValue,
         tickets_vendus: ticketsVendusCount,
         recette_tickets: recetteTickets,
-        quota_bagages: quotaBagagesValue, // ✅ Quota total de la commune (non divisé)
+        quota_bagages: quotaBagagesValue,
         poids_vendu: poidsTotal,
         recette_bagages: recetteBagagesTotal,
         recette_totale: recetteTickets + recetteBagagesTotal,
@@ -692,7 +851,6 @@ export async function getVoyageDetailsSuivi(voyageId: string) {
     const totalRecetteBagages = ventesParGare.reduce((sum, v) => sum + v.recette_bagages, 0);
     const totalRecette = ventesParGare.reduce((sum, v) => sum + v.recette_totale, 0);
 
-    // ✅ Calcul du quota bagages total (somme des quotas des communes)
     const totalQuotaBagages = ventesParGare.reduce((sum, v) => sum + v.quota_bagages, 0);
 
     const detail = {
@@ -757,7 +915,7 @@ export async function activerVenteGare(voyageId: string, gareNum: number) {
 
 export async function activerToutesVentes(voyageId: string) {
   try {
-    // ✅ Récupérer le voyage pour connaître le trajet
+    // Récupérer le voyage pour connaître le trajet
     const { data: voyage, error: voyageError } = await supabaseAdmin
       .from('voyages')
       .select('gare_depart, gare_arrivee, sens')
@@ -768,7 +926,7 @@ export async function activerToutesVentes(voyageId: string) {
       return { error: 'Voyage non trouvé' };
     }
 
-    // ✅ Récupérer toutes les gares
+    // Récupérer toutes les gares
     const { data: allGares } = await supabaseAdmin
       .from('gare')
       .select('num')
@@ -782,7 +940,7 @@ export async function activerToutesVentes(voyageId: string) {
     const departIndex = gareCodes.indexOf(voyage.gare_depart);
     const arriveeIndex = gareCodes.indexOf(voyage.gare_arrivee);
 
-    // ✅ Déterminer les gares du trajet (départ inclus, arrivée exclu)
+    // Déterminer les gares du trajet (départ inclus, arrivée exclu)
     let garesTrajet: number[] = [];
     if (departIndex < arriveeIndex) {
       // Sens 2131 (Nord) - MGA vers MNG
@@ -792,7 +950,7 @@ export async function activerToutesVentes(voyageId: string) {
       garesTrajet = gareCodes.slice(arriveeIndex + 1, departIndex + 1);
     }
 
-    // ✅ Supprimer toutes les désactivations pour ce voyage
+    // Supprimer toutes les désactivations pour ce voyage
     const { error: deleteAllError } = await supabaseAdmin
       .from('vente_desactivee')
       .delete()
@@ -802,7 +960,7 @@ export async function activerToutesVentes(voyageId: string) {
       return { error: 'Erreur lors de la suppression des désactivations' };
     }
 
-    // ✅ Désactiver les gares hors trajet (toutes les gares - garesTrajet)
+    // Désactiver les gares hors trajet (toutes les gares - garesTrajet)
     const garesHorsTrajet = gareCodes.filter(g => !garesTrajet.includes(g));
 
     if (garesHorsTrajet.length > 0) {

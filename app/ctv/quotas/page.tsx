@@ -43,6 +43,52 @@ interface QuotaBagage {
 
 type TabType = 'tickets' | 'bagages';
 
+// ✅ Valeurs par défaut pour les quotas tickets (2131, 2132)
+const DEFAULT_TICKET_QUOTAS: { [key: number]: { quota_2131: number; quota_2132: number } } = {
+  1: { quota_2131: 175, quota_2132: 0 },   // Moramanga
+  2: { quota_2131: 20, quota_2132: 30 },    // Andasibe
+  3: { quota_2131: 10, quota_2132: 30 },    // Fanovana
+  4: { quota_2131: 10, quota_2132: 30 },    // Ambatovola
+  5: { quota_2131: 10, quota_2132: 30 },    // Antanifotsy
+  6: { quota_2131: 35, quota_2132: 35 },    // Andekaleka
+  7: { quota_2131: 10, quota_2132: 10 },    // Ambalahoraka
+  8: { quota_2131: 15, quota_2132: 15 },    // Jirama PK206
+  9: { quota_2131: 35, quota_2132: 35 },    // Lohariandava
+  10: { quota_2131: 10, quota_2132: 10 },   // Sandrakazomena PK220
+  11: { quota_2131: 35, quota_2132: 30 },   // Fanasana
+  12: { quota_2131: 10, quota_2132: 10 },   // Mangabe PK230
+  13: { quota_2131: 35, quota_2132: 20 },   // Razanaka
+  14: { quota_2131: 20, quota_2132: 20 },   // Anivorano
+  15: { quota_2131: 50, quota_2132: 130 },  // Brickaville
+  16: { quota_2131: 30, quota_2132: 15 },   // Ambila
+  17: { quota_2131: 30, quota_2132: 15 },   // Vavony
+  18: { quota_2131: 30, quota_2132: 15 },   // Ampanotoamaizina
+  19: { quota_2131: 30, quota_2132: 15 },   // Andranokoditra
+  20: { quota_2131: 30, quota_2132: 15 },   // Tampina
+  21: { quota_2131: 30, quota_2132: 15 },   // Tapolo
+  22: { quota_2131: 30, quota_2132: 15 },   // Ankarefo
+  23: { quota_2131: 30, quota_2132: 15 },   // Vohiteza
+  24: { quota_2131: 30, quota_2132: 15 },   // Ivondro
+  25: { quota_2131: 0, quota_2132: 180 },   // Manguiers
+};
+
+// ✅ Valeurs par défaut pour les quotas bagages (2131, 2132)
+const DEFAULT_BAGAGE_QUOTAS: { [key: string]: { quota_tonnes_2131: number; quota_tonnes_2132: number } } = {
+  'Moramanga': { quota_tonnes_2131: 30, quota_tonnes_2132: 0 },
+  'Andasibe': { quota_tonnes_2131: 1, quota_tonnes_2132: 1 },
+  'Ambatovola': { quota_tonnes_2131: 4, quota_tonnes_2132: 4 },
+  'Andekaleka': { quota_tonnes_2131: 8, quota_tonnes_2132: 8 },
+  'Lohariandava': { quota_tonnes_2131: 10, quota_tonnes_2132: 10 },
+  'Fanasana': { quota_tonnes_2131: 10, quota_tonnes_2132: 10 },
+  'Razanaka': { quota_tonnes_2131: 3, quota_tonnes_2132: 4 },
+  'Anivorano': { quota_tonnes_2131: 2, quota_tonnes_2132: 2 },
+  'Brickaville': { quota_tonnes_2131: 5, quota_tonnes_2132: 15 },
+  'Andovoranto': { quota_tonnes_2131: 2, quota_tonnes_2132: 1 },
+  'Ambinaninony': { quota_tonnes_2131: 1, quota_tonnes_2132: 1 },
+  'Amboditandro': { quota_tonnes_2131: 1, quota_tonnes_2132: 1 },
+  'CU Toamasina': { quota_tonnes_2131: 0, quota_tonnes_2132: 13 },
+};
+
 export default function QuotasPage() {
   const router = useRouter();
 
@@ -74,14 +120,14 @@ export default function QuotasPage() {
     setError(null);
 
     try {
-      // Récupérer les gares triées par num (ordre croissant = MGA → MNG)
+      // Récupérer les gares triées par num
       const { data: garesData } = await supabase
         .from('gare')
         .select('*')
         .order('num', { ascending: true });
       setGares(garesData || []);
 
-      // Récupérer les communes uniques dans l'ordre des gares
+      // Récupérer les communes uniques
       const communesUniques: string[] = [];
       const communesSet = new Set<string>();
       garesData?.forEach(g => {
@@ -92,7 +138,7 @@ export default function QuotasPage() {
       });
       setCommunes(communesUniques);
 
-      // Récupérer les quotas tickets GLOBAUX
+      // Récupérer les quotas tickets
       const { data: ticketsData } = await supabase
         .from('quota_tickets')
         .select('*')
@@ -101,19 +147,23 @@ export default function QuotasPage() {
       if (ticketsData && ticketsData.length > 0) {
         setQuotaTickets(ticketsData.map(t => ({ 
           gare_num: t.gare_num, 
-          quota_2131: t.quota_2131 || 50,
-          quota_2132: t.quota_2132 || 50
+          quota_2131: t.quota_2131 || 0,
+          quota_2132: t.quota_2132 || 0
         })));
       } else {
-        const initialTickets = garesData?.map(g => ({ 
-          gare_num: g.num, 
-          quota_2131: 50,
-          quota_2132: 50
-        })) || [];
+        // ✅ Utiliser les valeurs par défaut pour les tickets
+        const initialTickets = garesData?.map(g => {
+          const defaultQuota = DEFAULT_TICKET_QUOTAS[g.num];
+          return { 
+            gare_num: g.num, 
+            quota_2131: defaultQuota?.quota_2131 || 0,
+            quota_2132: defaultQuota?.quota_2132 || 0
+          };
+        }) || [];
         setQuotaTickets(initialTickets);
       }
 
-      // Récupérer les quotas bagages GLOBAUX
+      // Récupérer les quotas bagages
       const { data: bagagesData } = await supabase
         .from('quota_bagages')
         .select('*')
@@ -122,15 +172,19 @@ export default function QuotasPage() {
       if (bagagesData && bagagesData.length > 0) {
         setQuotaBagages(bagagesData.map(b => ({ 
           commune_tutelle: b.commune_tutelle,
-          quota_tonnes_2131: b.quota_tonnes_2131 || 3,
-          quota_tonnes_2132: b.quota_tonnes_2132 || 3
+          quota_tonnes_2131: b.quota_tonnes_2131 || 0,
+          quota_tonnes_2132: b.quota_tonnes_2132 || 0
         })));
       } else {
-        const initialBagages = communesUniques.map(c => ({ 
-          commune_tutelle: c,
-          quota_tonnes_2131: 3,
-          quota_tonnes_2132: 3
-        }));
+        // ✅ Utiliser les valeurs par défaut pour les bagages
+        const initialBagages = communesUniques.map(c => {
+          const defaultQuota = DEFAULT_BAGAGE_QUOTAS[c];
+          return { 
+            commune_tutelle: c,
+            quota_tonnes_2131: defaultQuota?.quota_tonnes_2131 || 0,
+            quota_tonnes_2132: defaultQuota?.quota_tonnes_2132 || 0
+          };
+        });
         setQuotaBagages(initialBagages);
       }
 

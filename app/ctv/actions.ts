@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use server';
 
@@ -468,3 +469,161 @@ export async function getVoyageHistoriqueDetailsCTV(voyageId: string) {
 }
 
 export const getVoyageDetailsHistorique = getVoyageHistoriqueDetailsCTV;
+
+// ✅ Enregistrer les quotas d'un voyage terminé
+export async function enregistrerQuotasVoyage(voyageId: string, sens: string) {
+  try {
+    // 1. Récupérer les quotas tickets actuels
+    const { data: quotasTickets, error: errorTickets } = await supabaseAdmin
+      .from('quota_tickets')
+      .select('*')
+      .order('gare_num');
+
+    if (errorTickets) {
+      console.error('Erreur récupération quotas tickets:', errorTickets);
+      return { error: 'Erreur lors de la récupération des quotas tickets' };
+    }
+
+    // 2. Récupérer les quotas bagages actuels
+    const { data: quotasBagages, error: errorBagages } = await supabaseAdmin
+      .from('quota_bagages')
+      .select('*')
+      .order('commune_tutelle');
+
+    if (errorBagages) {
+      console.error('Erreur récupération quotas bagages:', errorBagages);
+      return { error: 'Erreur lors de la récupération des quotas bagages' };
+    }
+
+    // 3. Construire l'objet pour quota_ticket_enregistre
+    // Mapping gare_num → colonne
+    const gareMapping: { [key: number]: string } = {
+      1: 'gare_mga',
+      2: 'gare_adb',
+      3: 'gare_fnv',
+      4: 'gare_abv',
+      5: 'gare_aty',
+      6: 'gare_adk',
+      7: 'gare_abh',
+      8: 'gare_jrm',
+      9: 'gare_lhd',
+      10: 'gare_skm',
+      11: 'gare_fns',
+      12: 'gare_mgb',
+      13: 'gare_rzk',
+      14: 'gare_anv',
+      15: 'gare_bkv',
+      16: 'gare_abl',
+      17: 'gare_vvn',
+      18: 'gare_zin',
+      19: 'gare_adr',
+      20: 'gare_tpn',
+      21: 'gare_tpl',
+      22: 'gare_akf',
+      23: 'gare_vtz',
+      24: 'gare_ivd',
+      25: 'gare_mng',
+    };
+
+    const ticketData: any = {
+      id_voyage: voyageId,
+      sens: sens,
+    };
+
+    quotasTickets?.forEach(q => {
+      const columnName = gareMapping[q.gare_num];
+      if (columnName) {
+        // Prendre le bon quota selon le sens
+        const quota = sens === '2131' ? q.quota_2131 : q.quota_2132;
+        ticketData[columnName] = quota || 0;
+      }
+    });
+
+    // 4. Construire l'objet pour quota_bagagecolis_enregistre
+    const bagageData: any = {
+      id_voyage: voyageId,
+      sens: sens,
+    };
+
+    // Mapping commune_tutelle → colonne
+    const communeMapping: { [key: string]: string } = {
+      'Moramanga': 'commune_moramanga',
+      'Ambatovola': 'commune_ambatovola',
+      'Antalova': 'commune_antalova',
+      'Mahialambo': 'commune_mahialambo',
+      'Maromby': 'commune_maromby',
+      'Ambatolampy': 'commune_ambatolampy',
+      'Ambohibe': 'commune_ambohibe',
+      'Morafeno': 'commune_morafeno',
+      'Ambodifarihy': 'commune_ambodifarihy',
+      'Mahasoa': 'commune_mahasoa',
+      'Ambohimandroso': 'commune_ambohimandroso',
+      'Miarinarivo': 'commune_miarinarivo',
+      'Mandialaza': 'commune_mandialaza',
+    };
+
+    quotasBagages?.forEach(q => {
+      const columnName = communeMapping[q.commune_tutelle];
+      if (columnName) {
+        // Prendre le bon quota selon le sens
+        const quota = sens === '2131' ? q.quota_tonnes_2131 : q.quota_tonnes_2132;
+        bagageData[columnName] = quota || 0;
+      }
+    });
+
+    // 5. Insérer ou mettre à jour les quotas enregistrés
+    const { error: insertTicketError } = await supabaseAdmin
+      .from('quota_ticket_enregistre')
+      .upsert(ticketData, { onConflict: 'id_voyage, sens' });
+
+    if (insertTicketError) {
+      console.error('Erreur insertion quotas tickets enregistrés:', insertTicketError);
+      return { error: 'Erreur lors de l\'enregistrement des quotas tickets' };
+    }
+
+    const { error: insertBagageError } = await supabaseAdmin
+      .from('quota_bagagecolis_enregistre')
+      .upsert(bagageData, { onConflict: 'id_voyage, sens' });
+
+    if (insertBagageError) {
+      console.error('Erreur insertion quotas bagages enregistrés:', insertBagageError);
+      return { error: 'Erreur lors de l\'enregistrement des quotas bagages' };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Erreur enregistrement quotas:', err);
+    return { error: 'Erreur lors de l\'enregistrement des quotas' };
+  }
+}
+
+// ✅ Récupérer les quotas enregistrés pour un voyage
+export async function getQuotasEnregistres(voyageId: string) {
+  try {
+    const { data: tickets, error: ticketError } = await supabaseAdmin
+      .from('quota_ticket_enregistre')
+      .select('*')
+      .eq('id_voyage', voyageId);
+
+    if (ticketError) {
+      console.error('Erreur récupération quotas tickets enregistrés:', ticketError);
+    }
+
+    const { data: bagages, error: bagageError } = await supabaseAdmin
+      .from('quota_bagagecolis_enregistre')
+      .select('*')
+      .eq('id_voyage', voyageId);
+
+    if (bagageError) {
+      console.error('Erreur récupération quotas bagages enregistrés:', bagageError);
+    }
+
+    return {
+      tickets: tickets || [],
+      bagages: bagages || [],
+    };
+  } catch (err) {
+    console.error('Erreur récupération quotas enregistrés:', err);
+    return { error: 'Erreur lors de la récupération des quotas' };
+  }
+}

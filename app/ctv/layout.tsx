@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, LogOut, History, Ticket, Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, LogOut, History, Ticket, Eye, Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -43,6 +43,11 @@ export default function CTVLayout({
       name: 'Tableau de bord',
       href: '/ctv',
       icon: <LayoutDashboard className="h-5 w-5" />,
+    },
+    {
+      name: 'Suivi de voyage',
+      href: '/ctv/suivi-temps-reel',
+      icon: <Eye className="h-5 w-5" />,
     },
     {
       name: 'Historique',

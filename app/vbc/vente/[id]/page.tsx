@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
  
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
@@ -5,14 +6,15 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { supabaseSite } from '@/lib/supabaseClientSite';
 import Navbar from '@/components/Navbar';
 import { 
   ArrowLeft, Ticket, User, 
   MapPin, Train, Calendar, AlertCircle, Loader2,
   CheckCircle, Lock, AlertTriangle, Printer, Users,
-  X
+  X, Globe, ChevronDown, ChevronUp, RefreshCw
 } from 'lucide-react';
-import { getVoyageDetails, getTarif, getLastTicketNumber } from '@/app/vbc/actions';
+import { getVoyageDetails, getTarif, getLastTicketNumber, getTicketsSite, validerTicketSite } from '@/app/vbc/actions';
 
 interface Voyage {
   id: string;
@@ -45,9 +47,22 @@ interface Gare {
   commune_tutelle: string;
 }
 
-interface Ticket1ere {
-  arrivee: string;
+interface TicketSite {
+  id: string;
+  num_ticket: string;
+  nom_voyageur: string;
+  cin: number;
+  mineur: boolean;
   depart: string;
+  arrivee: string;
+  classe: string;
+  montant: number;
+  part_madarail: number;
+  created_at: string;
+  id_voyageur: string;
+  sens: number[];
+  id_voyage: string;
+  status: string;
 }
 
 export default function VBCVentePage() {
@@ -72,6 +87,12 @@ export default function VBCVentePage() {
   } | null>(null);
   const [showCreatedTicket, setShowCreatedTicket] = useState(false);
 
+  // Tickets site
+  const [ticketsSite, setTicketsSite] = useState<TicketSite[]>([]);
+  const [loadingSite, setLoadingSite] = useState(false);
+  const [validatingTicket, setValidatingTicket] = useState<string | null>(null);
+  const [isSiteMenuOpen, setIsSiteMenuOpen] = useState(false);
+
   // Popup states
   const [popup, setPopup] = useState<{
     type: 'error' | 'success' | 'warning' | 'info';
@@ -89,6 +110,7 @@ export default function VBCVentePage() {
   const [quotas, setQuotas] = useState({
     tickets_max: 0,
     tickets_vendus: 0,
+    tickets_site: 0,
   });
 
   // Places disponibles pour la 1ère classe pour la gare actuelle
@@ -124,7 +146,7 @@ export default function VBCVentePage() {
   };
 
   // Vérifier si les quotas sont atteints
-  const isTicketsFull = quotas.tickets_max > 0 && quotas.tickets_vendus >= quotas.tickets_max;
+  const isTicketsFull = quotas.tickets_max > 0 && (quotas.tickets_vendus + quotas.tickets_site) >= quotas.tickets_max;
 
   // Vérifier si la 1ère classe est disponible
   const is1ereAvailable = places1ereDisponibles > 0;
@@ -187,7 +209,78 @@ export default function VBCVentePage() {
 
   const availableGares = getAvailableGares();
 
-  // Récupérer les places disponibles pour la 1ère classe pour la gare actuelle
+  // Charger les tickets site
+  const loadTicketsSite = async () => {
+    if (!voyage || !gare) return;
+    
+    setLoadingSite(true);
+    try {
+      const result = await getTicketsSite(voyage.id, gare.code);
+      if (result.error) {
+        showPopup('error', 'Erreur', result.error);
+      } else if (result.tickets) {
+        setTicketsSite(result.tickets);
+        // ✅ Mettre à jour le quota après chargement des tickets site
+        await updateQuota();
+      }
+    } catch (err) {
+      console.error('Erreur chargement tickets site:', err);
+    } finally {
+      setLoadingSite(false);
+    }
+  };
+
+  // ✅ Fonction pour mettre à jour le quota
+  const updateQuota = async () => {
+    if (!voyage) return;
+    try {
+      const result = await getVoyageDetails(voyage.id);
+      if (result && result.quotas) {
+        setQuotas({
+          tickets_max: result.quotas.tickets_max || 0,
+          tickets_vendus: result.quotas.tickets_vendus || 0,
+          tickets_site: result.quotas.tickets_site || 0,
+        });
+      }
+    } catch (err) {
+      console.error('Erreur mise à jour quota:', err);
+    }
+  };
+
+  // ✅ Écouteur Realtime pour les tickets site
+  useEffect(() => {
+    if (!voyage || !gare) return;
+
+    console.log('🔄 Mise en place de l\'écouteur Realtime pour les tickets site...');
+
+    const subscription = supabaseSite
+      .channel('ticket-site-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'ticket_voyageur_site',
+          filter: `id_voyage=eq.${voyage.id}`,
+        },
+        (payload) => {
+          console.log('📡 Changement détecté sur les tickets site:', payload);
+          
+          // ✅ Recharger les tickets site et le quota
+          loadTicketsSite();
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Statut de la souscription:', status);
+      });
+
+    return () => {
+      console.log('🧹 Nettoyage de l\'écouteur Realtime');
+      subscription.unsubscribe();
+    };
+  }, [voyage, gare]);
+
+  // Récupérer les places disponibles pour la 1ère classe
   useEffect(() => {
     const fetchPlaces1ere = async () => {
       if (!voyage || !gare) return;
@@ -196,7 +289,6 @@ export default function VBCVentePage() {
         const placesMax = voyage.formation_voiture * 60;
         setPlaces1ereMax(placesMax);
 
-        // Récupérer tous les tickets 1ère classe vendus avec leur destination
         const { data: tickets1ere } = await supabase
           .from('ticket_voyageur')
           .select('arrivee, depart')
@@ -208,7 +300,6 @@ export default function VBCVentePage() {
           return;
         }
 
-        // Obtenir l'index de la gare actuelle
         const allGares = [
           'MGA', 'ADB', 'FNV', 'ABV', 'ATY', 'ADK', 'ABH', 'JRM', 'LHD', 'SKM',
           'FNS', 'MGB', 'RZK', 'ANV', 'BKV', 'ABL', 'VVN', 'ZIN', 'ADR', 'TPN',
@@ -216,23 +307,17 @@ export default function VBCVentePage() {
         ];
         const currentIndex = allGares.indexOf(gare.code);
 
-        // Compter les places occupées pour le segment actuel
         let placesOccupees = 0;
 
         for (const ticket of tickets1ere) {
           const departIndex = allGares.indexOf(ticket.depart);
           const arriveeIndex = allGares.indexOf(ticket.arrivee);
 
-          // Le voyageur occupe une place entre sa gare de départ et sa gare d'arrivée
-          // Pour le sens 2131 (MGA → MNG) : de departIndex à arriveeIndex-1
-          // Pour le sens 2132 (MNG → MGA) : de arriveeIndex+1 à departIndex
           if (voyage.sens === '2131') {
-            // Le voyageur est dans le train si la gare actuelle est entre depart et arrivee (exclu)
             if (currentIndex >= departIndex && currentIndex < arriveeIndex) {
               placesOccupees++;
             }
           } else {
-            // Sens 2132 (MNG → MGA)
             if (currentIndex > arriveeIndex && currentIndex <= departIndex) {
               placesOccupees++;
             }
@@ -300,6 +385,9 @@ export default function VBCVentePage() {
         const lastNum = await getLastTicketNumber(voyageId, profileData.gare_ref);
         setNumTicketSequential(lastNum);
 
+        // Charger les tickets site
+        await loadTicketsSite();
+
       } catch (err) {
         console.error('Erreur:', err);
         showPopup('error', 'Erreur', 'Une erreur est survenue lors du chargement des données.');
@@ -355,13 +443,44 @@ export default function VBCVentePage() {
     return `${prefix}${seq}-${dateStr}-${pk}`;
   };
 
-  // Validation des formulaires
+  // Validation du ticket
   const validateVoyageur = () => {
     if (!voyageurForm.nom.trim()) return 'Nom du voyageur requis';
     if (!voyageurForm.cin.trim() || voyageurForm.cin.length !== 12) return 'CIN doit contenir 12 chiffres';
     if (!voyageurForm.arrivee) return 'Arrivée requise';
     if (voyageurForm.classe === '1ere' && !is1ereAvailable) return '1ère classe non disponible';
     return null;
+  };
+
+  // Validation d'un ticket site
+  const handleValiderTicketSite = async (ticketId: string) => {
+    setValidatingTicket(ticketId);
+    try {
+      const numTicket = generateTicketNumber('V');
+      const result = await validerTicketSite(
+        ticketId,
+        voyageId,
+        gare!.num,
+        profile!.nom,
+        numTicket
+      );
+
+      if (result.error) {
+        showPopup('error', 'Erreur', result.error);
+      } else {
+        showPopup('success', 'Ticket validé !', `Ticket ${numTicket} validé avec succès !`);
+        
+        // ✅ Recharger les tickets site et le quota
+        await loadTicketsSite();
+        // ✅ Le quota reste inchangé car tickets_site diminue et tickets_vendus augmente
+        // Le total reste le même
+      }
+    } catch (err) {
+      console.error('Erreur validation:', err);
+      showPopup('error', 'Erreur', 'Une erreur est survenue lors de la validation.');
+    } finally {
+      setValidatingTicket(null);
+    }
   };
 
   const handleSubmit = async () => {
@@ -388,7 +507,7 @@ export default function VBCVentePage() {
       return;
     }
 
-    // Vérifier les quotas
+    // Vérifier les quotas (incluant les tickets site)
     if (isTicketsFull) {
       showPopup('error', 'Quota atteint', 'Quota de tickets voyageurs atteint pour ce voyage.');
       return;
@@ -442,6 +561,7 @@ export default function VBCVentePage() {
           part_madarail: partMadarail,
           voyage_id: voyageIdStr,
           gare_ref: gareRef,
+          is_site: false,
         });
 
       if (ticketError) {
@@ -464,15 +584,11 @@ export default function VBCVentePage() {
       setNumTicketSequential(numTicketSequential + 1);
       showPopup('success', 'Ticket créé !', `Ticket voyageur ${numTicket} créé avec succès !`);
 
-      // Réinitialiser le formulaire
       setVoyageurForm({ nom: '', cin: '', mineur: false, arrivee: '', classe: '2eme' });
 
-      setQuotas(prev => ({
-        ...prev,
-        tickets_vendus: prev.tickets_vendus + 1,
-      }));
-      
-      // Mettre à jour les places 1ère classe
+      // ✅ Mettre à jour le quota (tickets_vendus +1)
+      await updateQuota();
+
       if (voyageurForm.classe === '1ere') {
         setPlaces1ereDisponibles(prev => Math.max(0, prev - 1));
       }
@@ -518,13 +634,11 @@ export default function VBCVentePage() {
 
   const previewTicketNumber = generateTicketNumber('V');
 
-  // Données pour le preview en temps réel
   const currentNom = voyageurForm.nom;
   const currentArrivee = voyageurForm.arrivee;
   const currentClasse = voyageurForm.classe;
   const currentMontant = montantVoyageur;
 
-  // Utiliser les données du ticket créé ou les données en temps réel
   const displayNom = showCreatedTicket && lastCreatedTicket ? lastCreatedTicket.nom_voyageur : currentNom;
   const displayArrivee = showCreatedTicket && lastCreatedTicket ? lastCreatedTicket.arrivee : currentArrivee;
   const displayClasse = showCreatedTicket && lastCreatedTicket ? lastCreatedTicket.classe : currentClasse;
@@ -537,7 +651,6 @@ export default function VBCVentePage() {
       <Navbar />
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* En-tête */}
         <div className="mb-4 flex items-center justify-between">
           <div>
             <button
@@ -559,33 +672,156 @@ export default function VBCVentePage() {
           </div>
         </div>
 
-        {/* Quota Tickets */}
+        {/* Quota Tickets avec menu déroulant Tickets Site */}
         <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-4 mb-4">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-stone-500 font-medium">Quota Tickets Voyageurs</p>
-              <p className="text-lg font-bold text-stone-800">
-                {quotas.tickets_vendus} / {quotas.tickets_max}
-              </p>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-stone-500 font-medium">Quota Tickets Voyageurs</p>
+                  <p className="text-lg font-bold text-stone-800">
+                    {quotas.tickets_vendus + quotas.tickets_site} / {quotas.tickets_max}
+                  </p>
+                  <p className="text-xs text-stone-400">
+                    {quotas.tickets_vendus} vendus + {quotas.tickets_site} réservés site
+                  </p>
+                </div>
+                {isTicketsFull ? (
+                  <div className="flex items-center gap-1.5 text-red-600 text-sm font-medium">
+                    <Lock className="h-4 w-4" />
+                    <span>Complet</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-emerald-600 text-sm font-medium">
+                    <Ticket className="h-4 w-4" />
+                    <span>{quotas.tickets_max - quotas.tickets_vendus - quotas.tickets_site} restants</span>
+                  </div>
+                )}
+              </div>
+              <div className="w-full bg-stone-200 rounded-full h-1.5 mt-1.5">
+                <div 
+                  className={`h-1.5 rounded-full transition-all ${isTicketsFull ? 'bg-red-500' : 'bg-amber-500'}`}
+                  style={{ width: `${quotas.tickets_max > 0 ? ((quotas.tickets_vendus + quotas.tickets_site) / quotas.tickets_max) * 100 : 0}%` }}
+                />
+              </div>
             </div>
-            {isTicketsFull ? (
-              <div className="flex items-center gap-1.5 text-red-600 text-sm font-medium">
-                <Lock className="h-4 w-4" />
-                <span>Complet</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 text-emerald-600 text-sm font-medium">
-                <Ticket className="h-4 w-4" />
-                <span>{quotas.tickets_max - quotas.tickets_vendus} restants</span>
-              </div>
-            )}
+
+            {/* Bouton menu déroulant Tickets Site */}
+            <div className="ml-4">
+              <button
+                onClick={() => {
+                  setIsSiteMenuOpen(!isSiteMenuOpen);
+                  if (!isSiteMenuOpen) {
+                    loadTicketsSite();
+                  }
+                }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                  isSiteMenuOpen 
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' 
+                    : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                }`}
+              >
+                <Globe className="h-4 w-4" />
+                <span>Tickets Site</span>
+                {loadingSite ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded-full text-xs font-bold">
+                    {ticketsSite.length}
+                  </span>
+                )}
+                {isSiteMenuOpen ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </button>
+            </div>
           </div>
-          <div className="w-full bg-stone-200 rounded-full h-1.5 mt-1.5">
-            <div 
-              className={`h-1.5 rounded-full transition-all ${isTicketsFull ? 'bg-red-500' : 'bg-amber-500'}`}
-              style={{ width: `${quotas.tickets_max > 0 ? (quotas.tickets_vendus / quotas.tickets_max) * 100 : 0}%` }}
-            />
-          </div>
+
+          {/* Menu déroulant Tickets Site */}
+          {isSiteMenuOpen && (
+            <div className="mt-4 border-t border-stone-200/60 pt-4">
+              {loadingSite ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 text-emerald-500 animate-spin" />
+                  <span className="ml-2 text-sm text-stone-500">Chargement...</span>
+                </div>
+              ) : ticketsSite.length === 0 ? (
+                <div className="text-center py-4">
+                  <Globe className="h-8 w-8 text-stone-300 mx-auto mb-2" />
+                  <p className="text-sm text-stone-500">Aucun ticket réservé sur le site</p>
+                  <button
+                    onClick={loadTicketsSite}
+                    className="mt-2 text-xs text-emerald-600 hover:text-emerald-700 transition flex items-center gap-1 mx-auto"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Actualiser
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-stone-50/80">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600">N° Ticket</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600">Voyageur</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600">Trajet</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600">Classe</th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold text-stone-600">Montant</th>
+                        <th className="px-3 py-2 text-center text-xs font-semibold text-stone-600">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-200/60">
+                      {ticketsSite.map((ticket) => (
+                        <tr key={ticket.id} className="hover:bg-stone-50 transition">
+                          <td className="px-3 py-2 text-xs font-mono text-stone-600">{ticket.num_ticket || '---'}</td>
+                          <td className="px-3 py-2 text-xs text-stone-700">{ticket.nom_voyageur}</td>
+                          <td className="px-3 py-2 text-xs text-stone-600">{ticket.depart} → {ticket.arrivee}</td>
+                          <td className="px-3 py-2 text-xs">
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                              ticket.classe === '1ere' ? 'bg-yellow-100 text-yellow-800' : 'bg-stone-100 text-stone-600'
+                            }`}>
+                              {ticket.classe === '1ere' ? '1ère' : '2ème'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-xs font-medium text-emerald-600 text-right">
+                            {ticket.montant.toLocaleString()} Ar
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              onClick={() => handleValiderTicketSite(ticket.id)}
+                              disabled={validatingTicket === ticket.id || isTicketsFull}
+                              className={`px-3 py-1 rounded-lg text-xs font-medium transition ${
+                                validatingTicket === ticket.id || isTicketsFull
+                                  ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                              }`}
+                            >
+                              {validatingTicket === ticket.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin inline" />
+                              ) : (
+                                'Valider'
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      onClick={loadTicketsSite}
+                      className="text-xs text-emerald-600 hover:text-emerald-700 transition flex items-center gap-1"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      Actualiser
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Alertes */}
@@ -598,7 +834,6 @@ export default function VBCVentePage() {
 
         {/* Formulaire + Aperçu - Single Page */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* Formulaire */}
           <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-stone-200/60 p-5">
             <h2 className="text-sm font-semibold text-stone-800 mb-4 flex items-center gap-1.5">
               <Ticket className="h-4 w-4 text-amber-600" />
@@ -711,14 +946,10 @@ export default function VBCVentePage() {
                     </button>
                   </div>
                   {!is1ereAvailable && voyageurForm.arrivee && (
-                    <p className="text-[10px] text-red-500 mt-0.5">
-                      1ère classe complète pour ce segment
-                    </p>
+                    <p className="text-[10px] text-red-500 mt-0.5">1ère classe complète pour ce segment</p>
                   )}
                   {!voyageurForm.arrivee && (
-                    <p className="text-[10px] text-amber-500 mt-0.5">
-                      Sélectionnez une destination
-                    </p>
+                    <p className="text-[10px] text-amber-500 mt-0.5">Sélectionnez une destination</p>
                   )}
                 </div>
                 {voyageurForm.arrivee && tarifInfo && (
@@ -738,7 +969,6 @@ export default function VBCVentePage() {
               </div>
             )}
 
-            {/* Bouton Valider */}
             <div className="border-t border-stone-200/60 pt-4 mt-4">
               <button
                 onClick={handleSubmit}
@@ -772,7 +1002,6 @@ export default function VBCVentePage() {
             </div>
           </div>
 
-          {/* Aperçu du ticket */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-5 sticky top-24">
               <div className="flex items-center justify-between mb-3">
@@ -791,9 +1020,7 @@ export default function VBCVentePage() {
                 )}
               </div>
 
-              {/* Ticket stylisé */}
               <div className={`bg-linear-to-br from-amber-50 to-stone-50 rounded-xl border-2 ${isDisplayCreated ? 'border-emerald-400' : 'border-amber-200/60'} p-4 relative overflow-hidden transition-all duration-200`}>
-                {/* Bande décorative */}
                 <div className="absolute top-0 left-0 right-0 h-1 bg-linear-to-r from-amber-700 via-stone-600 to-emerald-700" />
                 
                 <div className="text-center mb-2">
@@ -843,7 +1070,6 @@ export default function VBCVentePage() {
                   </div>
                 </div>
 
-                {/* Badge de statut */}
                 <div className="absolute bottom-2 right-2">
                   <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full transition-all duration-200 ${
                     isDisplayCreated ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-600'
@@ -862,7 +1088,6 @@ export default function VBCVentePage() {
         </div>
       </div>
 
-      {/* Popup */}
       {popup.visible && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className={`bg-white rounded-xl shadow-2xl max-w-md w-full p-5 transform transition-all animate-in fade-in zoom-in duration-200 ${
