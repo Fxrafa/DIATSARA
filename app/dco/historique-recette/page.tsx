@@ -1,18 +1,27 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable react-hooks/immutability */
+/* eslint-disable react/no-unescaped-entities */
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @typescript-eslint/no-unused-vars */
- 
 'use client';
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, Suspense } from 'react';
 import { 
-  History, Calendar, Train, Users, Package, 
+  Activity, Calendar, Train, Users, Package, 
   Ticket, Loader2, AlertCircle, Eye,
-  ArrowLeft, ChevronDown, ChevronUp, Search, X,
-  BarChart3, PieChart
+  ArrowLeft, ChevronDown, ChevronUp, Power,
+  PowerOff, RefreshCw, AlertTriangle
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { getVoyagesHistoriqueRecetteFiltre, getVoyageDetailsRecette, getQuotasEnregistres } from '../actions';
+import { useSearchParams } from 'next/navigation';
+
+import { 
+  getVoyagesActifsSuivi, 
+  getVoyageDetailsSuivi,
+  desactiverVenteGare,
+  activerVenteGare,
+  activerToutesVentes
+} from '../actions';
 
 interface Voyage {
   id: string;
@@ -34,11 +43,15 @@ interface VenteParGare {
   gare_num: number;
   gare_code: string;
   gare_name: string;
+  commune_tutelle: string;
+  quota_tickets: number;
   tickets_vendus: number;
   recette_tickets: number;
+  quota_bagages: number;
   poids_vendu: number;
   recette_bagages: number;
   recette_totale: number;
+  desactivee: boolean;
 }
 
 interface VoyageDetail extends Voyage {
@@ -48,109 +61,61 @@ interface VoyageDetail extends Voyage {
   total_poids_vendu: number;
   total_recette_bagages: number;
   total_recette: number;
+  gares_desactivees: Set<number>;
 }
 
-interface QuotaTicketEnregistre {
-  id: string;
-  id_voyage: string;
-  sens: string;
-  gare_mga?: number;
-  gare_adb?: number;
-  gare_fnv?: number;
-  gare_abv?: number;
-  gare_aty?: number;
-  gare_adk?: number;
-  gare_abh?: number;
-  gare_jrm?: number;
-  gare_lhd?: number;
-  gare_skm?: number;
-  gare_fns?: number;
-  gare_mgb?: number;
-  gare_rzk?: number;
-  gare_anv?: number;
-  gare_bkv?: number;
-  gare_abl?: number;
-  gare_vvn?: number;
-  gare_zin?: number;
-  gare_adr?: number;
-  gare_tpn?: number;
-  gare_tpl?: number;
-  gare_akf?: number;
-  gare_vtz?: number;
-  gare_ivd?: number;
-  gare_mng?: number;
-  created_at?: string;
-  [key: string]: string | number | undefined; // Pour les propriétés dynamiques
+export default function DCOSuiviTempsReelPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-64">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-amber-700 border-t-transparent"></div>
+        <p className="ml-3 text-stone-500">Chargement...</p>
+      </div>
+    }>
+      <SuiviTempsReelContent />
+    </Suspense>
+  );
 }
 
-interface QuotaBagageEnregistre {
-  id: string;
-  id_voyage: string;
-  sens: string;
-  commune_moramanga?: number;
-  commune_ambatovola?: number;
-  commune_antalova?: number;
-  commune_mahialambo?: number;
-  commune_maromby?: number;
-  commune_ambatolampy?: number;
-  commune_ambohibe?: number;
-  commune_morafeno?: number;
-  commune_ambodifarihy?: number;
-  commune_mahasoa?: number;
-  commune_ambohimandroso?: number;
-  commune_miarinarivo?: number;
-  commune_mandialaza?: number;
-  created_at?: string;
-  [key: string]: string | number | undefined; // Pour les propriétés dynamiques
-}
-
-interface QuotasEnregistres {
-  tickets: QuotaTicketEnregistre[];
-  bagages: QuotaBagageEnregistre[];
-}
-
-export default function DCOHistoriqueRecettePage() {
+function SuiviTempsReelContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [voyages, setVoyages] = useState<Voyage[]>([]);
   const [selectedVoyage, setSelectedVoyage] = useState<VoyageDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [showQuotasModal, setShowQuotasModal] = useState(false);
-  const [quotasEnregistres, setQuotasEnregistres] = useState<QuotasEnregistres | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{
+    type: 'desactiver' | 'activer' | 'activer_toutes';
+    gareNum?: number;
+    gareCode?: string;
+    gareName?: string;
+  } | null>(null);
 
-  // États pour les filtres
-  const [dateDebut, setDateDebut] = useState<string>('');
-  const [dateFin, setDateFin] = useState<string>('');
-  const [isFiltering, setIsFiltering] = useState(false);
+  // Récupérer l'ID du voyage depuis l'URL
+  const voyageIdFromUrl = searchParams?.get('voyage');
 
-  // Initialiser avec le mois actuel
-  useEffect(() => {
-    const now = new Date();
-    const premierJour = new Date(now.getFullYear(), now.getMonth(), 1);
-    const dernierJour = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    
-    setDateDebut(premierJour.toISOString().split('T')[0]);
-    setDateFin(dernierJour.toISOString().split('T')[0]);
-    
-    fetchVoyages(
-      premierJour.toISOString().split('T')[0],
-      dernierJour.toISOString().split('T')[0]
-    );
-  }, []);
-
-  const fetchVoyages = async (debut?: string, fin?: string) => {
+  const fetchVoyages = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const result = await getVoyagesHistoriqueRecetteFiltre(debut, fin);
+      const result = await getVoyagesActifsSuivi();
       
       if (result.error) {
         setError(result.error);
       } else {
         setVoyages(result.voyages || []);
+        
+        // Si un voyageId est dans l'URL, charger ses détails
+        if (voyageIdFromUrl && result.voyages) {
+          const voyage = result.voyages.find(v => v.id === voyageIdFromUrl);
+          if (voyage) {
+            fetchVoyageDetails(voyageIdFromUrl);
+          }
+        }
       }
     } catch (err) {
       console.error('Erreur:', err);
@@ -160,66 +125,147 @@ export default function DCOHistoriqueRecettePage() {
     setLoading(false);
   };
 
-  const handleFilter = () => {
-    if (dateDebut && dateFin) {
-      if (dateDebut > dateFin) {
-        setError('La date de début doit être antérieure à la date de fin');
-        return;
-      }
-      setIsFiltering(true);
-      fetchVoyages(dateDebut, dateFin);
-      setError(null);
-    } else {
-      setError('Veuillez sélectionner une plage de dates');
-    }
-  };
-
-  const handleReset = () => {
-    const now = new Date();
-    const premierJour = new Date(now.getFullYear(), now.getMonth(), 1);
-    const dernierJour = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    
-    setDateDebut(premierJour.toISOString().split('T')[0]);
-    setDateFin(dernierJour.toISOString().split('T')[0]);
-    setIsFiltering(false);
-    fetchVoyages(
-      premierJour.toISOString().split('T')[0],
-      dernierJour.toISOString().split('T')[0]
-    );
-    setError(null);
-  };
+  useEffect(() => {
+    fetchVoyages();
+  }, [voyageIdFromUrl]);
 
   const fetchVoyageDetails = async (voyageId: string) => {
     setLoadingDetail(true);
     setError(null);
+    setSuccess(null);
 
     try {
-      // Récupérer les détails du voyage
-      const result = await getVoyageDetailsRecette(voyageId);
+      const result = await getVoyageDetailsSuivi(voyageId);
       
       if (result.error) {
         setError(result.error);
       } else if (result.detail) {
         setSelectedVoyage(result.detail);
       }
-
-      // Récupérer les quotas enregistrés pour ce voyage
-      const quotasResult = await getQuotasEnregistres(voyageId);
-      if (quotasResult && !('error' in quotasResult)) {
-        setQuotasEnregistres({
-          tickets: quotasResult.tickets || [],
-          bagages: quotasResult.bagages || [],
-        });
-      } else {
-        setQuotasEnregistres(null);
-      }
-
     } catch (err) {
       console.error('Erreur:', err);
       setError('Erreur lors du chargement des détails');
     }
 
     setLoadingDetail(false);
+  };
+
+  const handleDesactiverVente = async (gareNum: number, gareCode: string, gareName: string) => {
+    if (!selectedVoyage) return;
+    
+    setConfirmModal({
+      type: 'desactiver',
+      gareNum,
+      gareCode,
+      gareName,
+    });
+  };
+
+  const handleActiverVente = async (gareNum: number, gareCode: string, gareName: string) => {
+    if (!selectedVoyage) return;
+    
+    setConfirmModal({
+      type: 'activer',
+      gareNum,
+      gareCode,
+      gareName,
+    });
+  };
+
+  const handleActiverToutes = async () => {
+    if (!selectedVoyage) return;
+    
+    setConfirmModal({
+      type: 'activer_toutes',
+    });
+  };
+
+  const confirmAction = async () => {
+    if (!selectedVoyage || !confirmModal) return;
+
+    setError(null);
+    setSuccess(null);
+
+    try {
+      if (confirmModal.type === 'desactiver' && confirmModal.gareNum) {
+        const result = await desactiverVenteGare(selectedVoyage.id, confirmModal.gareNum);
+        if (result.error) {
+          setError(result.error);
+          setConfirmModal(null);
+          return;
+        }
+
+        setSelectedVoyage(prev => {
+          if (!prev) return prev;
+          const newVentes = prev.ventes_par_gare.map(v => 
+            v.gare_num === confirmModal.gareNum ? { ...v, desactivee: true } : v
+          );
+          const newGaresDesactivees = new Set(prev.gares_desactivees);
+          newGaresDesactivees.add(confirmModal.gareNum!);
+          return {
+            ...prev,
+            ventes_par_gare: newVentes,
+            gares_desactivees: newGaresDesactivees,
+          };
+        });
+        setSuccess(`Vente désactivée pour la gare ${confirmModal.gareCode}`);
+
+      } else if (confirmModal.type === 'activer' && confirmModal.gareNum) {
+        const result = await activerVenteGare(selectedVoyage.id, confirmModal.gareNum);
+        if (result.error) {
+          setError(result.error);
+          setConfirmModal(null);
+          return;
+        }
+
+        setSelectedVoyage(prev => {
+          if (!prev) return prev;
+          const newVentes = prev.ventes_par_gare.map(v => 
+            v.gare_num === confirmModal.gareNum ? { ...v, desactivee: false } : v
+          );
+          const newGaresDesactivees = new Set(prev.gares_desactivees);
+          newGaresDesactivees.delete(confirmModal.gareNum!);
+          return {
+            ...prev,
+            ventes_par_gare: newVentes,
+            gares_desactivees: newGaresDesactivees,
+          };
+        });
+        setSuccess(`Vente activée pour la gare ${confirmModal.gareCode}`);
+
+      } else if (confirmModal.type === 'activer_toutes') {
+        const result = await activerToutesVentes(selectedVoyage.id);
+        if (result.error) {
+          setError(result.error);
+          setConfirmModal(null);
+          return;
+        }
+
+        setSelectedVoyage(prev => {
+          if (!prev) return prev;
+          const newVentes = prev.ventes_par_gare.map(v => ({ ...v, desactivee: false }));
+          return {
+            ...prev,
+            ventes_par_gare: newVentes,
+            gares_desactivees: new Set(),
+          };
+        });
+        setSuccess('Toutes les ventes ont été activées');
+      }
+
+      setTimeout(() => {
+        setSuccess(null);
+      }, 3000);
+    } catch (err) {
+      console.error('Erreur:', err);
+      setError('Erreur lors de l\'opération');
+    }
+
+    setConfirmModal(null);
+  };
+
+  const cancelConfirm = () => {
+    setConfirmModal(null);
   };
 
   const toggleRow = (gareCode: string) => {
@@ -247,74 +293,20 @@ export default function DCOHistoriqueRecettePage() {
 
   const getStatusBadge = (statut: string) => {
     if (statut === 'actif') {
-      return <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">Actif</span>;
+      return <span className="px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">Actif</span>;
     }
-    return <span className="px-2 py-1 bg-stone-100 text-stone-600 rounded-full text-xs font-medium">Terminé</span>;
+    return <span className="px-2.5 py-1 bg-stone-100 text-stone-600 rounded-full text-xs font-medium">Terminé</span>;
   };
 
   const hasData = (gare: VenteParGare) => {
     return gare.tickets_vendus > 0 || gare.poids_vendu > 0 || gare.recette_totale > 0;
   };
 
-  // Fonction pour obtenir les noms des gares depuis les quotas
-  const getGareNameFromQuota = (key: string): string => {
-    const gareMapping: Record<string, string> = {
-      'gare_mga': 'MGA - Moramanga',
-      'gare_adb': 'ADB - Andasibe',
-      'gare_fnv': 'FNV - Fanovana',
-      'gare_abv': 'ABV - Ambatovola',
-      'gare_aty': 'ATY - Antanifotsy',
-      'gare_adk': 'ADK - Andekaleka',
-      'gare_abh': 'ABH - Ambalahoraka',
-      'gare_jrm': 'JRM - Jirama PK206',
-      'gare_lhd': 'LHD - Lohariandava',
-      'gare_skm': 'SKM - Sandrakazomena',
-      'gare_fns': 'FNS - Fanasana',
-      'gare_mgb': 'MGB - Mangabe',
-      'gare_rzk': 'RZK - Razanaka',
-      'gare_anv': 'ANV - Anivorano',
-      'gare_bkv': 'BKV - Brickaville',
-      'gare_abl': 'ABL - Ambila',
-      'gare_vvn': 'VVN - Vavony',
-      'gare_zin': 'ZIN - Ampanotoamaizina',
-      'gare_adr': 'ADR - Andranokoditra',
-      'gare_tpn': 'TPN - Tampina',
-      'gare_tpl': 'TPL - Tapolo',
-      'gare_akf': 'AKF - Ankarefo',
-      'gare_vtz': 'VTZ - Vohiteza',
-      'gare_ivd': 'IVD - Ivondro',
-      'gare_mng': 'MNG - Manguiers',
-    };
-    return gareMapping[key] || key;
-  };
-
-  // Fonction pour obtenir les noms des communes depuis les quotas bagages
-  const getCommuneNameFromQuota = (key: string): string => {
-    const communeMapping: Record<string, string> = {
-      'commune_moramanga': 'Moramanga',
-      'commune_ambatovola': 'Ambatovola',
-      'commune_antalova': 'Antalova',
-      'commune_mahialambo': 'Mahialambo',
-      'commune_maromby': 'Maromby',
-      'commune_ambatolampy': 'Ambatolampy',
-      'commune_ambohibe': 'Ambohibe',
-      'commune_morafeno': 'Morafeno',
-      'commune_ambodifarihy': 'Ambodifarihy',
-      'commune_mahasoa': 'Mahasoa',
-      'commune_ambohimandroso': 'Ambohimandroso',
-      'commune_miarinarivo': 'Miarinarivo',
-      'commune_mandialaza': 'Mandialaza',
-    };
-    return communeMapping[key] || key;
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 text-amber-700 animate-spin mx-auto" />
-          <p className="mt-4 text-stone-500">Chargement de l&apos;historique...</p>
-        </div>
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-amber-700 border-t-transparent"></div>
+        <p className="ml-3 text-stone-500">Chargement des voyages actifs...</p>
       </div>
     );
   }
@@ -323,10 +315,10 @@ export default function DCOHistoriqueRecettePage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
-          <p className="mt-4 text-red-600">{error}</p>
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <p className="text-red-600">{error}</p>
           <button
-            onClick={() => handleReset()}
+            onClick={() => fetchVoyages()}
             className="mt-4 px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-sm font-medium transition shadow-sm shadow-amber-700/20"
           >
             Réessayer
@@ -337,14 +329,18 @@ export default function DCOHistoriqueRecettePage() {
   }
 
   if (selectedVoyage) {
+    const nbGaresDesactivees = selectedVoyage.gares_desactivees.size;
+    const totalGares = selectedVoyage.ventes_par_gare.length;
+
     return (
       <div>
         <div className="mb-6">
           <button
             onClick={() => {
               setSelectedVoyage(null);
-              setQuotasEnregistres(null);
-              handleReset();
+              setSuccess(null);
+              setError(null);
+              fetchVoyages();
             }}
             className="inline-flex items-center gap-2 text-stone-500 hover:text-stone-700 transition mb-4"
           >
@@ -355,9 +351,9 @@ export default function DCOHistoriqueRecettePage() {
           <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-5">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
-                <h1 className="text-2xl font-serif font-bold text-stone-800 flex items-center gap-2">
-                  <Train className="h-6 w-6 text-amber-700" />
-                  Détails du voyage
+                <h1 className="text-xl font-serif font-bold text-stone-800 flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-amber-700" />
+                  Suivi en temps réel
                 </h1>
                 <p className="text-stone-600 text-sm">
                   {selectedVoyage.gare_depart_detail?.code} → {selectedVoyage.gare_arrivee_detail?.code}
@@ -366,56 +362,52 @@ export default function DCOHistoriqueRecettePage() {
                   {formatDate(selectedVoyage.date_voyage)} • Sens {selectedVoyage.sens} • {getStatusBadge(selectedVoyage.statut)}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <p className="text-xs text-stone-500">Formation</p>
-                  <p className="text-sm font-medium text-stone-700">
-                    {selectedVoyage.formation_voiture > 0 && `${selectedVoyage.formation_voiture}×1ère`}
-                    {selectedVoyage.formation_voiture > 0 && selectedVoyage.formation_voiture2 > 0 && ' | '}
-                    {selectedVoyage.formation_voiture2 > 0 && `${selectedVoyage.formation_voiture2}×2ème`}
-                    {(selectedVoyage.formation_voiture > 0 || selectedVoyage.formation_voiture2 > 0) && selectedVoyage.formation_wagon > 0 && ' | '}
-                    {selectedVoyage.formation_wagon > 0 && `${selectedVoyage.formation_wagon}×W`}
-                  </p>
-                </div>
-                {quotasEnregistres && (quotasEnregistres.tickets.length > 0 || quotasEnregistres.bagages.length > 0) && (
-                  <button
-                    onClick={() => setShowQuotasModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium transition shadow-sm shadow-indigo-600/20"
-                  >
-                    <PieChart className="h-4 w-4" />
-                    Voir les quotas
-                  </button>
-                )}
+              <div className="text-right">
+                <p className="text-xs text-stone-500">Formation</p>
+                <p className="text-sm font-medium text-stone-700">
+                  {selectedVoyage.formation_voiture > 0 && `${selectedVoyage.formation_voiture}×1ère`}
+                  {selectedVoyage.formation_voiture > 0 && selectedVoyage.formation_voiture2 > 0 && ' | '}
+                  {selectedVoyage.formation_voiture2 > 0 && `${selectedVoyage.formation_voiture2}×2ème`}
+                  {(selectedVoyage.formation_voiture > 0 || selectedVoyage.formation_voiture2 > 0) && selectedVoyage.formation_wagon > 0 && ' | '}
+                  {selectedVoyage.formation_wagon > 0 && `${selectedVoyage.formation_wagon}×W`}
+                </p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Résumé */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-          <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-4">
-            <p className="text-xs text-stone-500 font-medium">Tickets vendus</p>
-            <p className="text-2xl font-bold text-blue-600">{selectedVoyage.total_tickets_vendus}</p>
+        {error && (
+          <div className="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+            <span>{error}</span>
           </div>
-          <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-4">
-            <p className="text-xs text-stone-500 font-medium">Recette tickets</p>
-            <p className="text-2xl font-bold text-emerald-600">{formatPrice(selectedVoyage.total_recette_tickets)}</p>
+        )}
+        {success && (
+          <div className="mb-4 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">
+            <RefreshCw className="h-5 w-5 text-emerald-500 shrink-0" />
+            <span>{success}</span>
           </div>
-          <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-4">
-            <p className="text-xs text-stone-500 font-medium">Poids vendu</p>
-            <p className="text-2xl font-bold text-amber-600">{selectedVoyage.total_poids_vendu.toFixed(1)} kg</p>
+        )}
+
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-sm text-stone-500">
+            {nbGaresDesactivees > 0 ? (
+              <span className="text-red-600">{nbGaresDesactivees} gare(s) désactivée(s)</span>
+            ) : (
+              <span className="text-emerald-600">Toutes les ventes sont actives</span>
+            )}
           </div>
-          <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-4">
-            <p className="text-xs text-stone-500 font-medium">Recette bagages</p>
-            <p className="text-2xl font-bold text-purple-600">{formatPrice(selectedVoyage.total_recette_bagages)}</p>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-4">
-            <p className="text-xs text-stone-500 font-medium">Recette totale</p>
-            <p className="text-2xl font-bold text-amber-700">{formatPrice(selectedVoyage.total_recette)}</p>
-          </div>
+          {nbGaresDesactivees > 0 && (
+            <button
+              onClick={handleActiverToutes}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-sm shadow-emerald-600/20"
+            >
+              <Power className="h-4 w-4" />
+              Activer toutes les ventes
+            </button>
+          )}
         </div>
 
-        {/* Tableau des détails par gare */}
         {loadingDetail ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 text-amber-700 animate-spin" />
@@ -426,30 +418,39 @@ export default function DCOHistoriqueRecettePage() {
               <table className="w-full">
                 <thead className="bg-stone-50/80">
                   <tr>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">#</th>
                     <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Gare</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Tickets Vendus</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Recette Tickets</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Poids Vendu</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Recette Bagages</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Recette Totale</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Détails</th>
+                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Quota Tickets</th>
+                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Vendus</th>
+                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Recette</th>
+                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Quota Bag.</th>
+                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Poids</th>
+                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Recette</th>
+                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-stone-600 uppercase tracking-wider">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-200/60">
-                  {selectedVoyage.ventes_par_gare.map((gare) => {
+                  {selectedVoyage.ventes_par_gare.map((gare, index) => {
                     const isExpanded = expandedRows.has(gare.gare_code);
                     const hasDataValue = hasData(gare);
+                    const isDesactivee = gare.desactivee;
                     
                     return (
                       <Fragment key={gare.gare_num}>
-                        <tr className={`hover:bg-stone-50 transition ${!hasDataValue ? 'text-stone-400' : ''}`}>
+                        <tr className={`hover:bg-stone-50 transition ${isDesactivee ? 'bg-stone-50/80' : ''}`}>
+                          <td className="px-4 py-3 text-sm text-stone-400 font-mono text-center">
+                            {index + 1}
+                          </td>
                           <td className="px-4 py-3 text-sm font-medium">
-                            <span className={hasDataValue ? 'text-stone-800' : 'text-stone-400'}>
+                            <span className={isDesactivee ? 'text-stone-400 line-through' : hasDataValue ? 'text-stone-800' : 'text-stone-400'}>
                               {gare.gare_code} - {gare.gare_name}
                             </span>
-                            {!hasDataValue && (
-                              <span className="ml-2 text-xs text-stone-400">(aucune vente)</span>
+                            {isDesactivee && (
+                              <span className="ml-2 text-xs text-red-500 font-medium">(Désactivée)</span>
                             )}
+                          </td>
+                          <td className="px-4 py-3 text-center text-sm text-blue-600 font-medium">
+                            {gare.quota_tickets}
                           </td>
                           <td className="px-4 py-3 text-center text-sm">
                             <span className={hasDataValue ? 'text-stone-800 font-medium' : 'text-stone-400'}>
@@ -461,6 +462,9 @@ export default function DCOHistoriqueRecettePage() {
                               {hasDataValue ? formatPrice(gare.recette_tickets) : '0 Ar'}
                             </span>
                           </td>
+                          <td className="px-4 py-3 text-center text-sm text-amber-600 font-medium">
+                            {gare.quota_bagages}T
+                          </td>
                           <td className="px-4 py-3 text-center text-sm">
                             <span className={hasDataValue ? 'text-amber-600 font-medium' : 'text-stone-400'}>
                               {gare.poids_vendu.toFixed(1)} kg
@@ -471,29 +475,29 @@ export default function DCOHistoriqueRecettePage() {
                               {hasDataValue ? formatPrice(gare.recette_bagages) : '0 Ar'}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-center text-sm">
-                            <span className={hasDataValue ? 'font-bold text-amber-700' : 'text-stone-400'}>
-                              {hasDataValue ? formatPrice(gare.recette_totale) : '0 Ar'}
-                            </span>
-                          </td>
                           <td className="px-4 py-3 text-center">
-                            {hasDataValue && (
+                            {isDesactivee ? (
                               <button
-                                onClick={() => toggleRow(gare.gare_code)}
-                                className="p-1 hover:bg-stone-100 rounded transition"
+                                onClick={() => handleActiverVente(gare.gare_num, gare.gare_code, gare.gare_name)}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1 mx-auto"
                               >
-                                {isExpanded ? (
-                                  <ChevronUp className="h-4 w-4 text-stone-500" />
-                                ) : (
-                                  <ChevronDown className="h-4 w-4 text-stone-500" />
-                                )}
+                                <Power className="h-3.5 w-3.5" />
+                                Activer
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleDesactiverVente(gare.gare_num, gare.gare_code, gare.gare_name)}
+                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1 mx-auto"
+                              >
+                                <PowerOff className="h-3.5 w-3.5" />
+                                Désactiver
                               </button>
                             )}
                           </td>
                         </tr>
                         {isExpanded && hasDataValue && (
                           <tr className="bg-stone-50/50">
-                            <td colSpan={7} className="px-4 py-3">
+                            <td colSpan={9} className="px-4 py-3">
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div className="bg-white rounded-lg p-3 border border-stone-200/60">
                                   <h4 className="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -501,6 +505,10 @@ export default function DCOHistoriqueRecettePage() {
                                     Tickets Voyageurs
                                   </h4>
                                   <div className="space-y-1 text-sm">
+                                    <div className="flex justify-between">
+                                      <span className="text-stone-500">Quota:</span>
+                                      <span className="font-medium text-blue-600">{gare.quota_tickets}</span>
+                                    </div>
                                     <div className="flex justify-between">
                                       <span className="text-stone-500">Vendus:</span>
                                       <span className="font-medium text-stone-800">{gare.tickets_vendus}</span>
@@ -519,6 +527,10 @@ export default function DCOHistoriqueRecettePage() {
                                   </h4>
                                   <div className="space-y-1 text-sm">
                                     <div className="flex justify-between">
+                                      <span className="text-stone-500">Quota bagages:</span>
+                                      <span className="font-medium text-amber-600">{gare.quota_bagages}T</span>
+                                    </div>
+                                    <div className="flex justify-between">
                                       <span className="text-stone-500">Poids vendu:</span>
                                       <span className="font-medium text-amber-600">{gare.poids_vendu.toFixed(1)} kg</span>
                                     </div>
@@ -529,8 +541,8 @@ export default function DCOHistoriqueRecettePage() {
                                   </div>
                                 </div>
 
-                                <div className="bg-amber-50/50 rounded-lg p-3 border border-amber-200/60">
-                                  <h4 className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-2">Résumé</h4>
+                                <div className={`rounded-lg p-3 border ${isDesactivee ? 'bg-red-50/50 border-red-200/60' : 'bg-emerald-50/50 border-emerald-200/60'}`}>
+                                  <h4 className="text-xs font-semibold uppercase tracking-wider mb-2">Résumé</h4>
                                   <div className="space-y-1 text-sm">
                                     <div className="flex justify-between">
                                       <span className="text-stone-500">Total vendu:</span>
@@ -542,6 +554,12 @@ export default function DCOHistoriqueRecettePage() {
                                       <span className="text-stone-500">Recette totale:</span>
                                       <span className="font-bold text-amber-700">
                                         {formatPrice(gare.recette_totale)}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-stone-500">Statut:</span>
+                                      <span className={`font-medium ${isDesactivee ? 'text-red-600' : 'text-emerald-600'}`}>
+                                        {isDesactivee ? 'Vente désactivée' : 'Vente active'}
                                       </span>
                                     </div>
                                   </div>
@@ -556,7 +574,10 @@ export default function DCOHistoriqueRecettePage() {
                 </tbody>
                 <tfoot className="bg-stone-100/80 border-t-2 border-stone-200">
                   <tr>
-                    <td className="px-4 py-3 text-sm font-bold text-stone-800">TOTAL</td>
+                    <td className="px-4 py-3 text-sm font-bold text-stone-800" colSpan={2}>TOTAL</td>
+                    <td className="px-4 py-3 text-center text-sm font-bold text-blue-600">
+                      {selectedVoyage.ventes_par_gare.reduce((sum, v) => sum + v.quota_tickets, 0)}
+                    </td>
                     <td className="px-4 py-3 text-center text-sm font-bold text-stone-800">
                       {selectedVoyage.total_tickets_vendus}
                     </td>
@@ -564,13 +585,13 @@ export default function DCOHistoriqueRecettePage() {
                       {formatPrice(selectedVoyage.total_recette_tickets)}
                     </td>
                     <td className="px-4 py-3 text-center text-sm font-bold text-amber-600">
+                      {selectedVoyage.ventes_par_gare.reduce((sum, v) => sum + v.quota_bagages, 0)}T
+                    </td>
+                    <td className="px-4 py-3 text-center text-sm font-bold text-amber-600">
                       {selectedVoyage.total_poids_vendu.toFixed(1)} kg
                     </td>
                     <td className="px-4 py-3 text-center text-sm font-bold text-purple-600">
                       {formatPrice(selectedVoyage.total_recette_bagages)}
-                    </td>
-                    <td className="px-4 py-3 text-center text-sm font-bold text-amber-700">
-                      {formatPrice(selectedVoyage.total_recette)}
                     </td>
                     <td className="px-4 py-3 text-center"></td>
                   </tr>
@@ -580,107 +601,52 @@ export default function DCOHistoriqueRecettePage() {
           </div>
         )}
 
-        {/* Modal des quotas enregistrés */}
-        {showQuotasModal && quotasEnregistres && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-              <div className="px-6 py-4 border-b border-stone-200/60 bg-stone-50/80 flex items-center justify-between">
+        {confirmModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`h-10 w-10 rounded-full flex items-center justify-center ${confirmModal.type === 'desactiver' ? 'bg-red-100' : 'bg-emerald-100'}`}>
+                  {confirmModal.type === 'desactiver' ? (
+                    <PowerOff className="h-5 w-5 text-red-600" />
+                  ) : (
+                    <Power className="h-5 w-5 text-emerald-600" />
+                  )}
+                </div>
                 <div>
-                  <h2 className="text-lg font-serif font-bold text-stone-800 flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5 text-indigo-600" />
-                    Quotas enregistrés
-                  </h2>
-                  <p className="text-xs text-stone-500">
-                    Voyage du {formatDate(selectedVoyage.date_voyage)} • Sens {selectedVoyage.sens}
+                  <h3 className="text-lg font-bold text-stone-800">Confirmer l'action</h3>
+                  <p className="text-sm text-stone-500">
+                    {confirmModal.type === 'desactiver' ? 'Désactivation de la vente' : 'Activation de la vente'}
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowQuotasModal(false)}
-                  className="p-2 hover:bg-stone-100 rounded-lg transition"
-                >
-                  <X className="h-5 w-5 text-stone-400" />
-                </button>
               </div>
-
-              <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-                {/* Quotas Tickets */}
-                {quotasEnregistres.tickets.length > 0 && (
-                  <div className="mb-6">
-                    <h3 className="text-sm font-semibold text-stone-700 mb-3 flex items-center gap-2">
-                      <Ticket className="h-4 w-4 text-blue-600" />
-                      Quotas Tickets
-                    </h3>
-                    <div className="bg-stone-50/80 rounded-lg border border-stone-200/60 overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-stone-100/80">
-                            <tr>
-                              <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Gare</th>
-                              <th className="px-3 py-2 text-right text-xs font-semibold text-stone-600 uppercase tracking-wider">Quota</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-stone-200/60">
-                            {quotasEnregistres.tickets.map((quota) => {
-                              const entries = Object.entries(quota).filter(([key]) => 
-                                key.startsWith('gare_') && typeof key === 'string'
-                              );
-                              return entries.map(([key, value]) => (
-                                <tr key={key} className="hover:bg-stone-50 transition">
-                                  <td className="px-3 py-2 text-xs text-stone-700">{getGareNameFromQuota(key)}</td>
-                                  <td className="px-3 py-2 text-xs font-medium text-blue-600 text-right">{value as number}</td>
-                                </tr>
-                              ));
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
+              <p className="text-stone-600 mb-6">
+                {confirmModal.type === 'desactiver' && (
+                  <>Êtes-vous sûr de vouloir <span className="font-semibold text-red-600">désactiver</span> la vente pour la gare <span className="font-medium text-stone-800">{confirmModal.gareCode} - {confirmModal.gareName}</span> ?</>
                 )}
-
-                {/* Quotas Bagages */}
-                {quotasEnregistres.bagages.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold text-stone-700 mb-3 flex items-center gap-2">
-                      <Package className="h-4 w-4 text-amber-600" />
-                      Quotas Bagages
-                    </h3>
-                    <div className="bg-stone-50/80 rounded-lg border border-stone-200/60 overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-stone-100/80">
-                            <tr>
-                              <th className="px-3 py-2 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">Commune</th>
-                              <th className="px-3 py-2 text-right text-xs font-semibold text-stone-600 uppercase tracking-wider">Quota (tonnes)</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-stone-200/60">
-                            {quotasEnregistres.bagages.map((quota) => {
-                              const entries = Object.entries(quota).filter(([key]) => 
-                                key.startsWith('commune_') && typeof key === 'string'
-                              );
-                              return entries.map(([key, value]) => (
-                                <tr key={key} className="hover:bg-stone-50 transition">
-                                  <td className="px-3 py-2 text-xs text-stone-700">{getCommuneNameFromQuota(key)}</td>
-                                  <td className="px-3 py-2 text-xs font-medium text-amber-600 text-right">{value as number}</td>
-                                </tr>
-                              ));
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
+                {confirmModal.type === 'activer' && (
+                  <>Êtes-vous sûr de vouloir <span className="font-semibold text-emerald-600">activer</span> la vente pour la gare <span className="font-medium text-stone-800">{confirmModal.gareCode} - {confirmModal.gareName}</span> ?</>
                 )}
-
-                <div className="mt-4 flex justify-end">
-                  <button
-                    onClick={() => setShowQuotasModal(false)}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition shadow-sm shadow-indigo-600/20"
-                  >
-                    Fermer
-                  </button>
-                </div>
+                {confirmModal.type === 'activer_toutes' && (
+                  <>Êtes-vous sûr de vouloir <span className="font-semibold text-emerald-600">activer</span> les ventes pour <span className="font-medium text-stone-800">toutes les gares</span> ?</>
+                )}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={cancelConfirm}
+                  className="flex-1 px-4 py-2.5 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 transition font-medium"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={confirmAction}
+                  className={`flex-1 px-4 py-2.5 rounded-lg text-white transition font-medium shadow-sm ${
+                    confirmModal.type === 'desactiver' 
+                      ? 'bg-red-600 hover:bg-red-700 shadow-red-600/20' 
+                      : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
+                  }`}
+                >
+                  Confirmer
+                </button>
               </div>
             </div>
           </div>
@@ -689,72 +655,21 @@ export default function DCOHistoriqueRecettePage() {
     );
   }
 
-  // Liste des voyages avec filtre
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-serif font-bold text-stone-800 flex items-center gap-3">
-          <History className="h-6 w-6 text-amber-700" />
-          Historique des recettes
+          <Activity className="h-6 w-6 text-amber-700" />
+          Suivi en temps réel
         </h1>
-        <p className="text-stone-500 text-sm">Consultez les voyages terminés et leurs recettes par gare</p>
+        <p className="text-stone-500 text-sm">Gérez les ventes des voyages actifs par gare</p>
       </div>
-
-      {/* Filtres */}
-      <div className="bg-white rounded-xl shadow-sm border border-stone-200/60 p-4 mb-6">
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wider mb-1.5">Date début</label>
-            <input
-              type="date"
-              value={dateDebut}
-              onChange={(e) => setDateDebut(e.target.value)}
-              className="px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/20 focus:border-amber-700 transition-all"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wider mb-1.5">Date fin</label>
-            <input
-              type="date"
-              value={dateFin}
-              onChange={(e) => setDateFin(e.target.value)}
-              className="px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/20 focus:border-amber-700 transition-all"
-            />
-          </div>
-          <button
-            onClick={handleFilter}
-            className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-sm shadow-amber-700/20"
-          >
-            <Search className="h-4 w-4" />
-            Filtrer
-          </button>
-          <button
-            onClick={handleReset}
-            className="px-4 py-2 border border-stone-200 hover:bg-stone-50 text-stone-600 rounded-lg text-sm font-medium transition flex items-center gap-2"
-          >
-            <X className="h-4 w-4" />
-            Réinitialiser
-          </button>
-          {isFiltering && (
-            <span className="text-sm text-amber-700 font-medium">
-              {voyages.length} voyage(s) trouvé(s)
-            </span>
-          )}
-        </div>
-      </div>
-
-      {error && (
-        <div className="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
 
       {voyages.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl shadow-sm border border-stone-200/60">
-          <Calendar className="h-16 w-16 text-stone-300 mx-auto mb-4" />
-          <p className="text-stone-500 font-medium">Aucun voyage terminé trouvé</p>
-          <p className="text-sm text-stone-400 mt-1">Modifiez les filtres pour voir plus de voyages</p>
+          <Activity className="h-16 w-16 text-stone-300 mx-auto mb-4" />
+          <p className="text-stone-500 font-medium">Aucun voyage actif</p>
+          <p className="text-sm text-stone-400 mt-1">Les voyages planifiés apparaîtront ici</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -767,7 +682,11 @@ export default function DCOHistoriqueRecettePage() {
               <div className="p-5">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-stone-600">
-                    {formatDate(voyage.date_voyage)}
+                    {new Date(voyage.date_voyage).toLocaleDateString('fr-FR', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                    })}
                   </span>
                   {getStatusBadge(voyage.statut)}
                 </div>
@@ -796,7 +715,7 @@ export default function DCOHistoriqueRecettePage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-medium transition shadow-sm shadow-amber-700/20"
                   >
                     <Eye className="h-3.5 w-3.5" />
-                    Détails
+                    Suivi
                   </button>
                 </div>
               </div>
