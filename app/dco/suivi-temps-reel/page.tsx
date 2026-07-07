@@ -5,7 +5,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, Suspense } from 'react';
 import { 
   Activity, Calendar, Train, Users, Package, 
   Ticket, Loader2, AlertCircle, Eye,
@@ -65,6 +65,19 @@ interface VoyageDetail extends Voyage {
 }
 
 export default function DCOSuiviTempsReelPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-64">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-amber-700 border-t-transparent"></div>
+        <p className="ml-3 text-stone-500">Chargement...</p>
+      </div>
+    }>
+      <SuiviTempsReelContent />
+    </Suspense>
+  );
+}
+
+function SuiviTempsReelContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [voyages, setVoyages] = useState<Voyage[]>([]);
